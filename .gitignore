@@ -1,0 +1,15 @@
+node_modules/
+package-lock.json
+
+.wrangler/
+dist/
+.dev.vars
+
+.env
+.env.*
+!.env.example
+
+__pycache__/
+*.pyc
+results/
+credentials.json

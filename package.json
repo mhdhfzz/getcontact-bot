@@ -1,0 +1,27 @@
+{
+  "name": "getcontact-bot",
+  "version": "1.0.0",
+  "description": "Bot Telegram GetContact serverless berbasis Cloudflare Workers untuk lookup profil dan tag kontak.",
+  "main": "getcontact-bot.js",
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "keywords": [
+    "telegram-bot",
+    "getcontact",
+    "cloudflare-workers",
+    "serverless",
+    "phone-lookup"
+  ],
+  "author": "mhdhfzz",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mhdhfzz/getcontact-bot.git"
+  },
+  "devDependencies": {
+    "wrangler": "^3.114.17"
+  }
+}

@@ -43,7 +43,7 @@ CARRIER = ("510", "Indosat Ooredoo", "01")
 DH_P = 900719898367
 DH_G = 7
 
-CONFIG_DIR = Path(os.environ.get("GTC_CONFIG_DIR", Path.home() / ".config" / "gtc"))
+CONFIG_DIR = Path(os.environ.get("GTC_CONFIG_DIR", Path(__file__).resolve().parent))
 CRED_FILE = CONFIG_DIR / "credentials.json"
 RESULTS_DIR = Path(os.environ.get("GTC_RESULTS_DIR", Path(__file__).resolve().parent / "results"))
 

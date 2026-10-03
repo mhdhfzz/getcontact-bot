@@ -1,0 +1,13 @@
+name = "getcontact-bot"
+main = "getcontact-bot.js"
+compatibility_date = "2024-09-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Aktifkan Cloudflare KV setelah membuat namespace dengan perintah:
+# npx wrangler kv:namespace create GTC_KV
+# [[kv_namespaces]]
+# binding = "GTC_KV"
+# id = "PASTE_KV_ID_DI_SINI"
+
+[vars]
+ADMIN_CHAT_ID = ""
