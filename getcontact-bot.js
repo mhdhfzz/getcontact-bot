@@ -1179,15 +1179,8 @@ export default {
           { reply_to_message_id: msg.message_id }
         );
       }
-    } else if (isMentioned || isSearchCmd || guestQueryId) {
-      const bTag = botUsername ? `@${botUsername}` : "@namabot";
-      await tgSendMessage(
-        token,
-        chatId,
-        `👋 <b>Guest Mode GetContact</b>\n\nNomor telepon tidak ditemukan. Cara penggunaan di grup (tanpa join):\n• Kirim pesan: <code>${bTag} 081234567890</code>\n• Atau <b>reply</b> pesan target yang berisi nomor telepon dengan mention <code>${bTag}</code>`,
-        { reply_to_message_id: msg.message_id, guest_query_id: guestQueryId }
-      );
     }
+    // Jika di grup / Guest Mode dan tidak ada nomor valid, abaikan (silent) agar bot tidak dapat dijadikan sarana spam
 
     return new Response("OK");
   },
