@@ -17,6 +17,12 @@ Berjalan di atas **Cloudflare Workers** (serverless) & **Cloudflare KV**. Sangat
 
 - **🔍 Pencarian Profil Instan**: Menampilkan nama pemilik kontak (*display name*), nomor format E.164, email (jika tersedia), serta jumlah total tag tersimpan.
 - **🏷️ Daftar Tag Lengkap**: Menampilkan daftar nama yang disimpan oleh kontak orang lain, lengkap dengan frekuensi kemunculannya.
+- **🌐 Guest Mode (Grup & Chat Mana Pun Tanpa Harus Join)**:
+  - Bot dapat dipanggil di grup mana pun tanpa ribet.
+  - Cukup kirim pesan mention `@namabot 081234567890` atau **reply** ke pesan bot mana pun.
+- **📊 Statistik Penggunaan Admin (`/stats`)**:
+  - Pantau analitik bot secara *real-time*: jumlah pengguna unik, grup unik yang menggunakan Guest Mode, total pencarian profil/tag, dan captcha yang berhasil diselesaikan.
+  - Dilengkapi ringkasan kuota akun GetContact aktif dan tombol interaktif `[ 🔄 Refresh Statistik ]`.
 - **📊 Sisa Kuota Otomatis**: Setiap hasil pencarian profil maupun tag otomatis menyertakan informasi sisa kuota pencarian akun secara *real-time*.
 - **🔓 Buka Blokir / Solusi Captcha Otomatis**: Saat akun dibatasi (HTTP 403), bot otomatis memunculkan tombol buka blokir dan mengirimkan gambar captcha ke chat. Anda cukup mengetik teks captcha untuk membuka blokir akun secara instan.
 - **☕ Sistem Donasi QRIS**:
@@ -27,8 +33,8 @@ Berjalan di atas **Cloudflare Workers** (serverless) & **Cloudflare KV**. Sangat
   - Admin dapat menyimpan beberapa akun GetContact (`/addacc`).
   - Ganti akun aktif kapan saja dengan `/useacc <nama>`.
   - Hapus akun yang sudah tidak terpakai dengan `/delacc <nama>`.
-- **🔘 Navigasi Interaktif (Inline Keyboard)**: Cukup tekan tombol `[ 🏷️ Lihat Tags ]`, `[ 👤 Lihat Profil ]`, atau `[ ☕ Donasi ]` dalam satu ketukan.
-- **⚡ 100% Serverless & Zero External Dependencies**: Berjalan di *edge runtime* Cloudflare Workers global tanpa modul eksternal (AES-256-ECB & WebCrypto HMAC sudah tertanam langsung), sehingga dapat langsung di-copy-paste ke Cloudflare Dashboard Quick Edit maupun di-deploy via CLI. Ukuran bundle sangat ringkas (~14.9 KiB gzipped).
+- **🔘 Navigasi Interaktif (Inline Keyboard)**: Cukup tekan tombol `[ 🏷️ Lihat Tags ]`, `[ 👤 Lihat Profil ]`, `[ ☕ Donasi ]`, atau `[ 🔄 Refresh ]` dalam satu ketukan.
+- **⚡ 100% Serverless & Zero External Dependencies**: Berjalan di *edge runtime* Cloudflare Workers global tanpa modul eksternal (AES-256-ECB & WebCrypto HMAC sudah tertanam langsung), sehingga dapat langsung di-copy-paste ke Cloudflare Dashboard Quick Edit maupun di-deploy via CLI. Ukuran bundle sangat ringkas (~16.6 KiB gzipped).
 
 ---
 
@@ -167,13 +173,43 @@ Teks singkat yang muncul pada profil bot:
 
 ## Cara Penggunaan & Daftar Perintah
 
-Bot ini dirancang sangat praktis dan berbasis tombol interaktif (*inline keyboard*), sehingga pengguna tidak perlu mengetik banyak perintah:
+Bot ini dirancang sangat praktis dan dapat digunakan baik di **Chat Pribadi** maupun di **Grup / Channel (Guest Mode)**:
+
+### 1. Chat Pribadi (Direct Message)
+Cukup kirimkan nomor HP target langsung ke chat bot tanpa format rumit:
+- Contoh: `081234567890` atau `+6281234567890`
+- Atau gunakan perintah `/search 081234567890`
+
+---
+
+### 2. Guest Mode (Di Grup / Chat Mana Pun Tanpa Harus Bot Join Khusus)
+
+Bot dapat merespons pencarian nomor di grup mana pun dengan sangat fleksibel:
+
+> 🔄 **Perbedaan Cara Pakai:**
+> - ❌ **Dulu (inline mode)**: ketik `@namabot nomor` di kolom input chat, pilih hasil dari daftar popup.
+> - ✅ **Sekarang (guest mode)**: kirim pesan biasa berisi mention bot (`@namabot nomor`) ATAU **reply** ke pesan bot mana pun dengan nomor di teks/reply tersebut.
+
+**Cara Penggunaan di Grup:**
+1. **Mention Langsung:** Kirim pesan mention bot beserta nomor target.
+   ```text
+   @VexGetContact_bot 081234567890
+   ```
+2. **Reply Pesan Berisi Nomor:** Balas (*reply*) pesan siapa pun di grup yang berisi nomor telepon, lalu ketik mention bot:
+   ```text
+   @VexGetContact_bot
+   ```
+3. **Reply Pesan Bot:** Balas (*reply*) pesan apa pun dari bot dengan mengetik nomor telepon yang ingin dicari.
+4. **Perintah Grup:** Ketik `/search 081234567890` atau `/search@VexGetContact_bot 081234567890`.
+
+---
 
 ### Perintah Pengguna
 
 | Input / Perintah | Keterangan |
 | :--- | :--- |
-| `081234567890` | Cukup kirim nomor telepon langsung di chat untuk melihat profil & sisa kuota |
+| `081234567890` | Cukup kirim nomor telepon langsung di chat pribadi untuk melihat profil & sisa kuota |
+| `@namabot <nomor>` | **Guest Mode**: Mention bot di grup untuk melakukan pencarian instan |
 | `/search <nomor>` | Alternatif pencarian menggunakan perintah (contoh: `/search 081234567890`) |
 | `/start` atau `/help` | Menampilkan panduan dan petunjuk singkat penggunaan bot |
 
@@ -183,12 +219,15 @@ Bot ini dirancang sangat praktis dan berbasis tombol interaktif (*inline keyboar
 > - **☕ Donasi:** Tekan tombol `[ ☕ Donasi ]` di bawah hasil pencarian untuk melihat QRIS dukungan perpanjangan akun Premium.
 > - **🔓 Buka Blokir (Captcha):** Tombol `[ 🔓 Selesaikan Captcha Sekarang ]` dan `[ 🔄 Refresh Gambar Captcha ]` otomatis muncul jika akun terkena pembatasan (HTTP 403).
 
+---
+
 ### Perintah Khusus Admin
 
 Perintah berikut hanya dapat dijalankan oleh akun Telegram yang ID-nya terdaftar pada variabel `ADMIN_CHAT_ID`:
 
 | Perintah Admin | Keterangan |
 | :--- | :--- |
+| `/stats` | **Statistik Bot**: Menampilkan analitik pengguna unik, grup unik (Guest Mode), total pencarian profil & tag, captcha terselesaikan, status akun aktif & sisa kuota, serta status donasi QRIS (dilengkapi tombol refresh interaktif) |
 | `/accounts` atau `/listacc` | Melihat daftar seluruh akun GetContact tersimpan |
 | `/useacc <nama>` | Mengganti akun GetContact yang sedang aktif digunakan |
 | `/addacc <nama> <token> <finalKey> <deviceId>` | Menambahkan akun GetContact baru ke database KV |

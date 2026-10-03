@@ -239,6 +239,164 @@ async function tgSendTyping(token, chatId) {
 }
 
 // ==========================================
+// SISTEM STATISTIK & GUEST MODE HELPER
+// ==========================================
+async function getBotInfo(token, env) {
+  const cached = await kvGet(env, "bot:info");
+  if (cached) {
+    try {
+      return JSON.parse(cached);
+    } catch { }
+  }
+  try {
+    const res = await tgCall(token, "getMe", {});
+    if (res.ok && res.result) {
+      await kvPut(env, "bot:info", JSON.stringify(res.result), { expirationTtl: 86400 * 7 });
+      return res.result;
+    }
+  } catch { }
+  return { username: "VexGetContact_bot", id: null };
+}
+
+function extractPhoneFromText(text) {
+  if (!text) return null;
+  // Format internasional (+1...) atau nomor Indonesia (08..., 62..., +62...)
+  const match = text.match(/(?:\+[1-9]\d{6,14}|(?:\+?62|08|0)[0-9\s\-()]{7,15})/);
+  if (match) {
+    const cleaned = match[0].replace(/[^\d+]/g, "").trim();
+    if (cleaned.length >= 8 && cleaned.length <= 16) {
+      return cleaned;
+    }
+  }
+  return null;
+}
+
+async function recordStats(env, type, chatId = null, userId = null, chatType = "private") {
+  try {
+    // 1. Catat user unik
+    if (userId) {
+      const uKey = `user:${userId}`;
+      const exists = await kvGet(env, uKey);
+      if (!exists) {
+        await kvPut(env, uKey, String(Date.now()));
+        const count = parseInt((await kvGet(env, "stats:total_users")) || "0", 10);
+        await kvPut(env, "stats:total_users", String(count + 1));
+      }
+    }
+
+    // 2. Catat grup unik (Guest Mode)
+    if (chatId && (chatType === "group" || chatType === "supergroup" || chatType === "channel")) {
+      const gKey = `group:${chatId}`;
+      const exists = await kvGet(env, gKey);
+      if (!exists) {
+        await kvPut(env, gKey, String(Date.now()));
+        const count = parseInt((await kvGet(env, "stats:total_groups")) || "0", 10);
+        await kvPut(env, "stats:total_groups", String(count + 1));
+      }
+    }
+
+    // 3. Catat counter event
+    if (type) {
+      const sKey = `stats:${type}`;
+      const count = parseInt((await kvGet(env, sKey)) || "0", 10);
+      await kvPut(env, sKey, String(count + 1));
+    }
+  } catch (e) {
+    console.error("Gagal mencatat statistik:", e);
+  }
+}
+
+async function handleStats(token, chatId, env, replyId = null, editMsgId = null) {
+  await tgSendTyping(token, chatId);
+  try {
+    const [
+      totalUsers,
+      totalGroups,
+      totalSearches,
+      totalTags,
+      totalCaptchas,
+      creds,
+      store,
+      qrisFileId,
+      qrisText,
+    ] = await Promise.all([
+      kvGet(env, "stats:total_users"),
+      kvGet(env, "stats:total_groups"),
+      kvGet(env, "stats:total_searches"),
+      kvGet(env, "stats:total_tags"),
+      kvGet(env, "stats:total_captchas"),
+      getActiveCreds(env),
+      loadAccountStore(env),
+      kvGet(env, "assets:qris_file_id"),
+      kvGet(env, "assets:qris_text"),
+    ]);
+
+    const accCount = Object.keys(store.accounts || {}).length + 1;
+
+    let quotaLine1 = "🔍 <b>Sisa Kuota Profil:</b> <i>Tidak tersedia</i>";
+    let quotaLine2 = "🏷️ <b>Sisa Kuota Tag:</b> <i>Tidak tersedia</i>";
+    let resetLine = "📅 <b>Reset Kuota:</b> <code>-</code>";
+
+    try {
+      const subRes = await gtcCall("/v2.8/subscription", { token: creds.token }, creds);
+      const usage = subRes.result?.subscriptionInfo?.usage || {};
+      const s = usage.search || {};
+      const nd = usage.numberDetail || {};
+      const renewDate = subRes.result?.subscriptionInfo?.renewDate || "-";
+
+      quotaLine1 = `🔍 <b>Sisa Kuota Profil:</b> <code>${s.remainingCount ?? "?"} / ${s.limit ?? "?"}</code>`;
+      quotaLine2 = `🏷️ <b>Sisa Kuota Tag:</b> <code>${nd.remainingCount ?? "?"} / ${nd.limit ?? "?"}</code>`;
+      resetLine = `📅 <b>Reset Kuota:</b> <code>${renewDate}</code>`;
+    } catch (e) {
+      quotaLine1 = `🔍 <b>Sisa Kuota:</b> <i>Gagal dicek (${escapeHtml(e.message)})</i>`;
+    }
+
+    const qrisStatus = qrisFileId ? "✅ Terpasang" : "❌ Belum diatur";
+    const noteStr = qrisText ? `\n📝 <b>Catatan QRIS:</b> <i>${escapeHtml(qrisText)}</i>` : "";
+
+    const text = [
+      `📊 <b>Statistik Bot GetContact (Admin)</b>`,
+      `━━━━━━━━━━━━━━━━━━`,
+      `👥 <b>Total Pengguna Unik:</b> <code>${parseInt(totalUsers || "0", 10).toLocaleString()}</code> user`,
+      `👥 <b>Total Grup (Guest Mode):</b> <code>${parseInt(totalGroups || "0", 10).toLocaleString()}</code> grup`,
+      `🔍 <b>Pencarian Profil:</b> <code>${parseInt(totalSearches || "0", 10).toLocaleString()}</code> kali`,
+      `🏷️ <b>Pencarian Tag:</b> <code>${parseInt(totalTags || "0", 10).toLocaleString()}</code> kali`,
+      `🔓 <b>Captcha Terpecahkan:</b> <code>${parseInt(totalCaptchas || "0", 10).toLocaleString()}</code> kali`,
+      ``,
+      `⚡ <b>Akun GetContact Aktif</b>`,
+      `━━━━━━━━━━━━━━━━━━`,
+      `👤 <b>Nama Akun:</b> <code>${escapeHtml(creds.name)}</code> (${accCount} akun tersimpan)`,
+      quotaLine1,
+      quotaLine2,
+      resetLine,
+      ``,
+      `☕ <b>Status Donasi QRIS</b>`,
+      `━━━━━━━━━━━━━━━━━━`,
+      `📸 <b>Foto QRIS:</b> ${qrisStatus}${noteStr}`,
+    ].join("\n");
+
+    const replyMarkup = {
+      inline_keyboard: [
+        [{ text: "🔄 Refresh Statistik", callback_data: "refresh_stats" }],
+      ],
+    };
+
+    if (editMsgId) {
+      await tgEditMessage(token, chatId, editMsgId, text, { reply_markup: replyMarkup });
+    } else {
+      await tgSendMessage(token, chatId, text, {
+        reply_to_message_id: replyId,
+        reply_markup: replyMarkup,
+      });
+    }
+  } catch (err) {
+    const errMsg = `❌ <b>Gagal memuat statistik:</b> ${escapeHtml(err.message)}`;
+    if (editMsgId) await tgEditMessage(token, chatId, editMsgId, errMsg);
+    else await tgSendMessage(token, chatId, errMsg, { reply_to_message_id: replyId });
+  }
+}
+
+// ==========================================
 // MANAJEMEN AKUN & OTORISASI ADMIN
 // ==========================================
 function isAdminUser(userId, env) {
@@ -297,6 +455,7 @@ async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null,
   }
 
   await tgSendTyping(token, chatId);
+  await recordStats(env, "total_searches");
 
   try {
     const creds = await getActiveCreds(env);
@@ -359,6 +518,7 @@ async function handleSearchTags(token, chatId, rawPhone, env, replyId = null, ed
   if (!phone || phone.length < 8) return;
 
   await tgSendTyping(token, chatId);
+  await recordStats(env, "total_tags");
 
   try {
     const creds = await getActiveCreds(env);
@@ -491,6 +651,7 @@ async function verifyCaptchaAnswer(token, chatId, answer, env, msgId) {
     await kvDelete(env, `pending_captcha:${chatId}`);
 
     if (res.meta?.httpStatusCode === 200) {
+      await recordStats(env, "total_captchas");
       await tgSendMessage(
         token,
         chatId,
@@ -552,13 +713,19 @@ export default {
           return new Response("❌ Error: TELEGRAM_BOT_TOKEN belum dipasang di Cloudflare Workers.", { status: 500 });
         }
         const webhookUrl = url.origin;
-        const tgRes = await fetch(
-          `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/setWebhook?url=${webhookUrl}`
-        );
+        const [tgRes, meRes] = await Promise.all([
+          fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/setWebhook?url=${webhookUrl}`),
+          fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getMe`),
+        ]);
         const data = await tgRes.json();
+        const meData = await meRes.json();
+        if (meData.ok && meData.result) {
+          await kvPut(env, "bot:info", JSON.stringify(meData.result), { expirationTtl: 86400 * 7 });
+        }
+        const bName = meData.result?.username ? `@${meData.result.username}` : "Bot";
         return new Response(
           data.ok
-            ? `🎉 Berhasil! Webhook Telegram sudah tersambung ke:\n${webhookUrl}\n\nBot siap digunakan!`
+            ? `🎉 Berhasil! Webhook Telegram sudah tersambung ke:\n${webhookUrl}\n\nBot: ${bName}\nBot siap digunakan di chat pribadi maupun grup (Guest Mode)!`
             : `❌ Gagal menyambungkan webhook:\n${JSON.stringify(data, null, 2)}`,
           { headers: { "Content-Type": "text/plain; charset=utf-8" } }
         );
@@ -590,7 +757,14 @@ export default {
       const msgId = cb.message?.message_id;
 
       if (chatId) {
-        if (data === "donate") {
+        if (data === "refresh_stats") {
+          if (!isAdminUser(cb.from?.id, env)) {
+            await tgAnswerCallback(token, cb.id, "⚠️ Khusus Admin.");
+            return new Response("OK");
+          }
+          await tgAnswerCallback(token, cb.id, "Memperbarui statistik...");
+          await handleStats(token, chatId, env, null, msgId);
+        } else if (data === "donate") {
           await tgAnswerCallback(token, cb.id);
           await sendDonationInfo(token, chatId, env);
         } else if (data === "captcha") {
@@ -610,12 +784,17 @@ export default {
       return new Response("OK");
     }
 
-    const msg = update.message;
+    const msg = update.message || update.channel_post;
     if (!msg) return new Response("OK");
 
     const chatId = msg.chat.id;
+    const chatType = msg.chat?.type || "private";
+    const isPrivate = chatType === "private";
     const userId = msg.from?.id;
-    const text = (msg.text || "").trim();
+    const text = (msg.text || msg.caption || "").trim();
+
+    // Catat statistik pengguna & grup (Guest Mode)
+    await recordStats(env, null, chatId, userId, chatType);
 
     // ----------------------------------------------------
     // MENANGANI UPLOAD FOTO QRIS OLEH ADMIN
@@ -655,15 +834,22 @@ export default {
     // ----------------------------------------------------
     // PERINTAH: /start & /help
     // ----------------------------------------------------
-    if (text === "/start" || text === "/help") {
+    if (text === "/start" || text === "/help" || text.startsWith("/start@") || text.startsWith("/help@")) {
+      const botInfo = await getBotInfo(token, env);
+      const bTag = botInfo?.username ? `@${botInfo.username}` : "@namabot";
       const welcome = [
         `👋 <b>Selamat Datang di GetContact Bot!</b>`,
         ``,
         `Cari identitas dan daftar tag nomor telepon langsung dari GetContact.`,
         ``,
         `📌 <b>Cara Penggunaan:</b>`,
-        `Cukup <b>kirim nomor HP</b> langsung ke chat ini:`,
-        `Contoh: <code>081234567890</code> atau <code>6281234567890</code> atau <code>+6281234567890</code>`,
+        `1. <b>Chat Pribadi:</b> Langsung kirim nomor HP ke chat ini:`,
+        `   Contoh: <code>081234567890</code> atau <code>+6281234567890</code>`,
+        ``,
+        `2. <b>Guest Mode (Di Grup Mana Pun):</b>`,
+        `   • Kirim pesan mention: <code>${bTag} 081234567890</code>`,
+        `   • Atau <b>reply</b> pesan mana pun yang berisi nomor HP dengan mention <code>${bTag}</code>`,
+        `   • Atau <b>reply</b> pesan bot dengan nomor HP target`,
         ``,
         `💡 <i>Setiap hasil pencarian otomatis menyertakan sisa kuota, tombol interaktif untuk melihat daftar tag, refresh profil, dan donasi.</i>`,
       ].join("\n");
@@ -819,23 +1005,89 @@ export default {
     }
 
     // ----------------------------------------------------
-    // PENCARIAN NOMOR: /search <nomor> atau nomor HP langsung
+    // PERINTAH ADMIN: /stats (Statistik Penggunaan & Kuota)
     // ----------------------------------------------------
-    let phoneInput = text.replace(/^\/(?:search|lookup)/, "").trim();
-    const phoneMatch = phoneInput.match(/(?:\+?62|08|0)[0-9\s\-()]{7,15}/);
-    if (phoneMatch) {
-      phoneInput = phoneMatch[0];
-    } else if (text.startsWith("/")) {
-      await tgSendMessage(
-        token,
-        chatId,
-        "⚠️ Perintah tidak dikenal.\nSilakan langsung kirim nomor HP untuk mencari profil & tag (contoh: <code>081234567890</code>).",
-        { reply_to_message_id: msg.message_id }
-      );
+    if (text === "/stats" || text.startsWith("/stats@")) {
+      if (!isAdminUser(userId, env)) {
+        await tgSendMessage(token, chatId, "⚠️ Perintah ini khusus untuk Admin.", {
+          reply_to_message_id: msg.message_id,
+        });
+        return new Response("OK");
+      }
+      await handleStats(token, chatId, env, msg.message_id);
       return new Response("OK");
     }
 
-    await handleSearchProfile(token, chatId, phoneInput, env, msg.message_id);
+    // ----------------------------------------------------
+    // PENCARIAN NOMOR: Private Chat & Guest Mode (Grup / Channel)
+    // ----------------------------------------------------
+    const botInfo = await getBotInfo(token, env);
+    const botUsername = (botInfo?.username || "").toLowerCase();
+    const isMentioned = Boolean(
+      botUsername &&
+      (text.toLowerCase().includes("@" + botUsername) ||
+        (msg.entities || []).some(
+          (e) => e.type === "mention" && text.substring(e.offset, e.offset + e.length).toLowerCase() === "@" + botUsername
+        ))
+    );
+    const isReplyToBot = Boolean(
+      msg.reply_to_message &&
+      (msg.reply_to_message.from?.id === botInfo?.id || msg.reply_to_message.from?.is_bot)
+    );
+    const isSearchCmd = text.startsWith("/search") || text.startsWith("/lookup");
+
+    // Jika di grup dan bukan ditujukan ke bot (bukan mention, bukan reply bot, bukan command), abaikan
+    if (!isPrivate && !isMentioned && !isReplyToBot && !isSearchCmd) {
+      return new Response("OK");
+    }
+
+    // Ekstraksi nomor telepon dari teks saat ini (hapus mention bot & perintah /search)
+    let cleanText = text;
+    if (botUsername) {
+      cleanText = cleanText.replace(new RegExp(`@${botUsername}`, "gi"), "");
+    }
+    cleanText = cleanText.replace(/^\/(?:search|lookup)(?:@\w+)?/i, "").trim();
+
+    let targetPhone = extractPhoneFromText(cleanText);
+
+    // Jika nomor tidak ada di teks pesan saat ini, tetapi me-reply pesan lain, cari nomor di pesan yang di-reply
+    if (!targetPhone && msg.reply_to_message) {
+      const replyContent = msg.reply_to_message.text || msg.reply_to_message.caption || "";
+      targetPhone = extractPhoneFromText(replyContent);
+    }
+
+    if (targetPhone) {
+      await handleSearchProfile(token, chatId, targetPhone, env, msg.message_id);
+      return new Response("OK");
+    }
+
+    // Jika nomor tidak ditemukan:
+    if (isPrivate) {
+      if (text.startsWith("/")) {
+        await tgSendMessage(
+          token,
+          chatId,
+          "⚠️ Perintah tidak dikenal.\nSilakan langsung kirim nomor HP untuk mencari profil & tag (contoh: <code>081234567890</code>).",
+          { reply_to_message_id: msg.message_id }
+        );
+      } else {
+        await tgSendMessage(
+          token,
+          chatId,
+          "⚠️ Format nomor telepon tidak valid.\nSilakan kirim nomor HP yang valid (contoh: <code>081234567890</code> atau <code>+6281234567890</code>).",
+          { reply_to_message_id: msg.message_id }
+        );
+      }
+    } else if (isMentioned || isSearchCmd) {
+      const bTag = botUsername ? `@${botUsername}` : "@namabot";
+      await tgSendMessage(
+        token,
+        chatId,
+        `👋 <b>Guest Mode GetContact</b>\n\nNomor telepon tidak ditemukan. Cara penggunaan di grup:\n• Kirim pesan: <code>${bTag} 081234567890</code>\n• Atau <b>reply</b> pesan target yang berisi nomor telepon dengan mention <code>${bTag}</code>\n• Atau <b>reply</b> pesan bot dengan nomor HP.`,
+        { reply_to_message_id: msg.message_id }
+      );
+    }
+
     return new Response("OK");
   },
 };
