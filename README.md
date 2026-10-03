@@ -137,14 +137,10 @@ Agar bot Anda memiliki tampilan profesional, menu perintah yang muncul otomatis 
 
 ### 2. Mengatur Menu Perintah Cepat (`/setcommands`)
 1. Kirim perintah `/setcommands` ke [@BotFather], lalu pilih bot Anda.
-2. Salin dan tempel daftar perintah berikut:
+2. Salin dan tempel daftar perintah ringkas berikut:
    ```text
-   search - Cari profil nama pemilik nomor HP
-   tags - Lihat daftar tag kontak tersimpan
-   quota - Cek sisa kuota pencarian akun
-   captcha - Buka blokir captcha jika terkena limit
-   donasi - Dukung perpanjangan akun GetContact Premium
-   help - Bantuan & panduan penggunaan bot
+   start - Mulai bot & panduan penggunaan
+   search - Cari identitas pemilik nomor HP
    ```
 
 ### 3. Mengatur Deskripsi Awal (`/setdescription`)
@@ -169,17 +165,21 @@ Teks singkat yang muncul pada profil bot:
 
 ---
 
-## Daftar Perintah Bot
+## Cara Penggunaan & Daftar Perintah
 
-| Perintah / Input | Keterangan |
+Bot ini dirancang sangat praktis dan berbasis tombol interaktif (*inline keyboard*), sehingga pengguna tidak perlu mengetik perintah yang rumit:
+
+| Input / Perintah | Keterangan |
 | :--- | :--- |
-| `/start` atau `/help` | Menampilkan panduan penggunaan dan menu bot |
-| `081234567890` | Kirim nomor telepon langsung untuk mencari profil & tag |
-| `/search <nomor>` | Mencari data profil dan nama pemilik nomor telepon |
-| `/tags <nomor>` | Mencari daftar tag yang disimpan kontak orang lain |
-| `/quota` | Mengecek sisa kuota pencarian akun GetContact aktif |
-| `/captcha` | Membuka gambar captcha jika akun terkena limit (403) |
-| `/donasi` | Menampilkan info QRIS donasi perpanjangan akun Premium |
+| `081234567890` | Langsung kirim nomor telepon di chat untuk melihat profil & sisa kuota |
+| `/search <nomor>` | Alternatif pencarian menggunakan perintah |
+| `/start` atau `/help` | Menampilkan petunjuk singkat penggunaan bot |
+
+> 💡 **Fitur Otomatis Berbasis Tombol:**
+> - **Lihat Tags:** Tekan tombol `[ 🏷️ Lihat Tags (N) ]` pada hasil pencarian profil untuk membuka seluruh daftar tag.
+> - **Sisa Kuota:** Otomatis disertakan secara *real-time* di bagian bawah setiap kartu hasil pencarian.
+> - **Donasi:** Tekan tombol `[ ☕ Donasi ]` di bawah hasil pencarian untuk melihat QRIS dukungan akun Premium.
+> - **Buka Blokir (Captcha):** Tombol `[ 🔓 Selesaikan Captcha Sekarang ]` otomatis muncul jika akun terkena limit (403).
 
 ### Perintah Khusus Admin
 
