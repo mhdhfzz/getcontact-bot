@@ -18,8 +18,8 @@ Berjalan di atas **Cloudflare Workers** (serverless) & **Cloudflare KV**. Sangat
 - **🔍 Pencarian Profil Instan**: Menampilkan nama pemilik kontak (*display name*), nomor format E.164, email (jika tersedia), serta jumlah total tag tersimpan.
 - **🏷️ Daftar Tag Lengkap**: Menampilkan daftar nama yang disimpan oleh kontak orang lain, lengkap dengan frekuensi kemunculannya.
 - **📊 Sisa Kuota Otomatis**: Setiap hasil pencarian profil maupun tag otomatis menyertakan informasi sisa kuota pencarian akun secara *real-time*.
-- **🔓 Buka Blokir / Solusi Captcha (`/captcha`)**: Saat akun dibatasi (HTTP 403), bot otomatis mengirimkan gambar captcha ke chat Telegram. Anda cukup mengetik teks captcha untuk membuka blokir akun secara instan.
-- **☕ Sistem Donasi QRIS (`/setqris` & `/donasi`)**:
+- **🔓 Buka Blokir / Solusi Captcha Otomatis**: Saat akun dibatasi (HTTP 403), bot otomatis memunculkan tombol buka blokir dan mengirimkan gambar captcha ke chat. Anda cukup mengetik teks captcha untuk membuka blokir akun secara instan.
+- **☕ Sistem Donasi QRIS**:
   - Tombol donasi terpasang otomatis di bawah setiap hasil pencarian kontak.
   - Admin dapat mengunggah gambar QRIS langsung lewat chat Telegram dengan `/setqris`.
   - Membantu penggalangan dana perpanjangan akun GetContact Premium agar kuota tetap tersedia.
@@ -167,19 +167,21 @@ Teks singkat yang muncul pada profil bot:
 
 ## Cara Penggunaan & Daftar Perintah
 
-Bot ini dirancang sangat praktis dan berbasis tombol interaktif (*inline keyboard*), sehingga pengguna tidak perlu mengetik perintah yang rumit:
+Bot ini dirancang sangat praktis dan berbasis tombol interaktif (*inline keyboard*), sehingga pengguna tidak perlu mengetik banyak perintah:
+
+### Perintah Pengguna
 
 | Input / Perintah | Keterangan |
 | :--- | :--- |
-| `081234567890` | Langsung kirim nomor telepon di chat untuk melihat profil & sisa kuota |
-| `/search <nomor>` | Alternatif pencarian menggunakan perintah |
-| `/start` atau `/help` | Menampilkan petunjuk singkat penggunaan bot |
+| `081234567890` | Cukup kirim nomor telepon langsung di chat untuk melihat profil & sisa kuota |
+| `/search <nomor>` | Alternatif pencarian menggunakan perintah (contoh: `/search 081234567890`) |
+| `/start` atau `/help` | Menampilkan panduan dan petunjuk singkat penggunaan bot |
 
-> 💡 **Fitur Otomatis Berbasis Tombol:**
-> - **Lihat Tags:** Tekan tombol `[ 🏷️ Lihat Tags (N) ]` pada hasil pencarian profil untuk membuka seluruh daftar tag.
-> - **Sisa Kuota:** Otomatis disertakan secara *real-time* di bagian bawah setiap kartu hasil pencarian.
-> - **Donasi:** Tekan tombol `[ ☕ Donasi ]` di bawah hasil pencarian untuk melihat QRIS dukungan akun Premium.
-> - **Buka Blokir (Captcha):** Tombol `[ 🔓 Selesaikan Captcha Sekarang ]` otomatis muncul jika akun terkena limit (403).
+> 💡 **Navigasi 100% Berbasis Tombol:**
+> - **🏷️ Lihat Tags:** Tekan tombol `[ 🏷️ Lihat Tags (N) ]` pada hasil pencarian profil untuk membuka seluruh daftar tag.
+> - **📊 Sisa Kuota:** Otomatis disertakan secara *real-time* di bagian bawah setiap kartu hasil pencarian.
+> - **☕ Donasi:** Tekan tombol `[ ☕ Donasi ]` di bawah hasil pencarian untuk melihat QRIS dukungan perpanjangan akun Premium.
+> - **🔓 Buka Blokir (Captcha):** Tombol `[ 🔓 Selesaikan Captcha Sekarang ]` dan `[ 🔄 Refresh Gambar Captcha ]` otomatis muncul jika akun terkena pembatasan (HTTP 403).
 
 ### Perintah Khusus Admin
 
