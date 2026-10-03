@@ -486,7 +486,7 @@ async function saveAccountStore(env, store) {
 // ==========================================
 // HANDLER PENCARIAN PROFIL & TAGS
 // ==========================================
-async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null, editMsgId = null, guestQueryId = null, inlineMsgId = null) {
+async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null, editMsgId = null, guestQueryId = null, inlineMsgId = null, ownerId = null) {
   const phone = normalizePhone(rawPhone);
   if (!phone || phone.length < 8) {
     const errorText = "⚠️ <b>Nomor telepon tidak valid.</b>\nContoh: <code>081234567890</code>";
@@ -539,8 +539,8 @@ async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null,
     const replyMarkup = {
       inline_keyboard: [
         [
-          { text: `🏷️ Lihat Tags (${tagCount})`, callback_data: `tags:${phone}` },
-          { text: `🔄 Refresh`, callback_data: `profile:${phone}` },
+          { text: `🏷️ Lihat Tags (${tagCount})`, callback_data: `tags:${phone}${ownerId ? `:${ownerId}` : ""}` },
+          { text: `🔄 Refresh`, callback_data: `profile:${phone}${ownerId ? `:${ownerId}` : ""}` },
         ],
         [
           { text: `☕ Donasi / Dukung Bot`, callback_data: `donate` },
@@ -568,7 +568,7 @@ async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null,
   }
 }
 
-async function handleSearchTags(token, chatId, rawPhone, env, replyId = null, editMsgId = null, inlineMsgId = null) {
+async function handleSearchTags(token, chatId, rawPhone, env, replyId = null, editMsgId = null, inlineMsgId = null, ownerId = null) {
   const phone = normalizePhone(rawPhone);
   if (!phone || phone.length < 8) return;
 
@@ -588,7 +588,10 @@ async function handleSearchTags(token, chatId, rawPhone, env, replyId = null, ed
     const replyMarkup = {
       inline_keyboard: [
         [
-          { text: `👤 Lihat Profil`, callback_data: `profile:${phone}` },
+          { text: `👤 Lihat Profil`, callback_data: `profile:${phone}${ownerId ? `:${ownerId}` : ""}` },
+          { text: `🔄 Refresh Tags`, callback_data: `tags:${phone}${ownerId ? `:${ownerId}` : ""}` },
+        ],
+        [
           { text: `☕ Donasi`, callback_data: `donate` },
         ],
       ],
@@ -855,13 +858,25 @@ export default {
           await tgAnswerCallback(token, cb.id, `Silakan buka chat pribadi dengan @${botInfo.username || "bot"} untuk menyelesaikan captcha.`, true);
         }
       } else {
-        const [action, phone] = data.split(":");
-        if (action === "tags") {
-          await tgAnswerCallback(token, cb.id, "Mengambil daftar tag...");
-          await handleSearchTags(token, chatId, phone, env, null, msgId, inlineMsgId);
-        } else if (action === "profile") {
-          await tgAnswerCallback(token, cb.id, "Mengambil profil...");
-          await handleSearchProfile(token, chatId, phone, env, null, msgId, null, inlineMsgId);
+        const [action, phone, ownerId] = data.split(":");
+        if (action === "tags" || action === "profile") {
+          // Batasi tombol hanya untuk pemanggil / pencari nomor ini
+          if (ownerId && String(ownerId) !== String(cb.from?.id)) {
+            await tgAnswerCallback(
+              token,
+              cb.id,
+              "⚠️ Tombol ini hanya dapat digunakan oleh pengguna yang meminta pencarian ini.",
+              true
+            );
+            return new Response("OK");
+          }
+          if (action === "tags") {
+            await tgAnswerCallback(token, cb.id, "Mengambil daftar tag...");
+            await handleSearchTags(token, chatId, phone, env, null, msgId, inlineMsgId, ownerId);
+          } else if (action === "profile") {
+            await tgAnswerCallback(token, cb.id, "Mengambil profil...");
+            await handleSearchProfile(token, chatId, phone, env, null, msgId, null, inlineMsgId, ownerId);
+          }
         } else {
           await tgAnswerCallback(token, cb.id);
         }
@@ -1143,7 +1158,7 @@ export default {
     }
 
     if (targetPhone) {
-      await handleSearchProfile(token, chatId, targetPhone, env, msg.message_id, null, guestQueryId);
+      await handleSearchProfile(token, chatId, targetPhone, env, msg.message_id, null, guestQueryId, null, userId);
       return new Response("OK");
     }
 
