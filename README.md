@@ -5,8 +5,11 @@ Bot Telegram untuk melakukan pencarian profil dan daftar tag nomor telepon GetCo
 Berjalan di atas **Cloudflare Workers** (serverless) & **Cloudflare KV**. Sangat cepat, hemat sumber daya, dan gratis untuk penggunaan pribadi tanpa perlu mengelola server (VPS).
 
 [![Repository](https://img.shields.io/badge/GitHub-getcontact--bot-0088cc?style=for-the-badge&logo=github&logoColor=white)](https://github.com/mhdhfzz/getcontact-bot)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
+[![Demo Bot](https://img.shields.io/badge/Telegram_Bot-@VexGetContact__bot-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/VexGetContact_bot)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](./LICENSE)
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?style=for-the-badge&logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
+
+> 🤖 **Demo Bot Langsung:** Coba bot yang sudah aktif di Telegram: [@VexGetContact_bot](https://t.me/VexGetContact_bot)
 
 ---
 
