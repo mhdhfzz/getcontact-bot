@@ -239,19 +239,31 @@ async function tgSendPhoto(token, chatId, photo, caption = "", options = {}) {
 }
 
 async function tgEditMessage(token, chatId, messageId, text, options = {}) {
-  return tgCall(token, "editMessageText", {
-    chat_id: chatId,
-    message_id: messageId,
+  const payload = {
     text,
     parse_mode: "HTML",
     ...options,
-  });
+  };
+  if (options.inline_message_id) {
+    payload.inline_message_id = options.inline_message_id;
+    delete payload.chat_id;
+    delete payload.message_id;
+  } else if (!chatId && messageId) {
+    payload.inline_message_id = messageId;
+    delete payload.chat_id;
+    delete payload.message_id;
+  } else {
+    payload.chat_id = chatId;
+    payload.message_id = messageId;
+  }
+  return tgCall(token, "editMessageText", payload);
 }
 
-async function tgAnswerCallback(token, callbackQueryId, text = "") {
+async function tgAnswerCallback(token, callbackQueryId, text = "", showAlert = false) {
   return tgCall(token, "answerCallbackQuery", {
     callback_query_id: callbackQueryId,
     text,
+    show_alert: showAlert,
   });
 }
 
@@ -330,8 +342,10 @@ async function recordStats(env, type, chatId = null, userId = null, chatType = "
   }
 }
 
-async function handleStats(token, chatId, env, replyId = null, editMsgId = null) {
-  await tgSendTyping(token, chatId);
+async function handleStats(token, chatId, env, replyId = null, editMsgId = null, inlineMsgId = null) {
+  if (chatId && chatId !== "guest") {
+    await tgSendTyping(token, chatId);
+  }
   try {
     const [
       totalUsers,
@@ -405,7 +419,9 @@ async function handleStats(token, chatId, env, replyId = null, editMsgId = null)
       ],
     };
 
-    if (editMsgId) {
+    if (inlineMsgId) {
+      await tgEditMessage(token, null, null, text, { reply_markup: replyMarkup, inline_message_id: inlineMsgId });
+    } else if (editMsgId) {
       await tgEditMessage(token, chatId, editMsgId, text, { reply_markup: replyMarkup });
     } else {
       await tgSendMessage(token, chatId, text, {
@@ -415,7 +431,8 @@ async function handleStats(token, chatId, env, replyId = null, editMsgId = null)
     }
   } catch (err) {
     const errMsg = `❌ <b>Gagal memuat statistik:</b> ${escapeHtml(err.message)}`;
-    if (editMsgId) await tgEditMessage(token, chatId, editMsgId, errMsg);
+    if (inlineMsgId) await tgEditMessage(token, null, null, errMsg, { inline_message_id: inlineMsgId });
+    else if (editMsgId) await tgEditMessage(token, chatId, editMsgId, errMsg);
     else await tgSendMessage(token, chatId, errMsg, { reply_to_message_id: replyId });
   }
 }
@@ -469,16 +486,19 @@ async function saveAccountStore(env, store) {
 // ==========================================
 // HANDLER PENCARIAN PROFIL & TAGS
 // ==========================================
-async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null, editMsgId = null, guestQueryId = null) {
+async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null, editMsgId = null, guestQueryId = null, inlineMsgId = null) {
   const phone = normalizePhone(rawPhone);
   if (!phone || phone.length < 8) {
     const errorText = "⚠️ <b>Nomor telepon tidak valid.</b>\nContoh: <code>081234567890</code>";
-    if (editMsgId) await tgEditMessage(token, chatId, editMsgId, errorText);
+    if (inlineMsgId) await tgEditMessage(token, null, null, errorText, { inline_message_id: inlineMsgId });
+    else if (editMsgId) await tgEditMessage(token, chatId, editMsgId, errorText);
     else await tgSendMessage(token, chatId, errorText, { reply_to_message_id: replyId, guest_query_id: guestQueryId });
     return;
   }
 
-  await tgSendTyping(token, chatId);
+  if (chatId && chatId !== "guest") {
+    await tgSendTyping(token, chatId);
+  }
   await recordStats(env, "total_searches");
 
   try {
@@ -491,7 +511,8 @@ async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null,
     const profile = res.result?.profile;
     if (!profile) {
       const notFound = `🔍 <b>Hasil:</b> <code>${phone}</code>\n\nNomor ini belum terdaftar di database GetContact.`;
-      if (editMsgId) await tgEditMessage(token, chatId, editMsgId, notFound);
+      if (inlineMsgId) await tgEditMessage(token, null, null, notFound, { inline_message_id: inlineMsgId });
+      else if (editMsgId) await tgEditMessage(token, chatId, editMsgId, notFound);
       else await tgSendMessage(token, chatId, notFound, { reply_to_message_id: replyId, guest_query_id: guestQueryId });
       return;
     }
@@ -527,7 +548,9 @@ async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null,
       ],
     };
 
-    if (editMsgId) {
+    if (inlineMsgId) {
+      await tgEditMessage(token, null, null, text, { reply_markup: replyMarkup, inline_message_id: inlineMsgId });
+    } else if (editMsgId) {
       await tgEditMessage(token, chatId, editMsgId, text, { reply_markup: replyMarkup });
     } else {
       await tgSendMessage(token, chatId, text, {
@@ -537,15 +560,21 @@ async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null,
       });
     }
   } catch (err) {
-    await handleSearchError(token, chatId, err, replyId, editMsgId, guestQueryId);
+    if (inlineMsgId) {
+      await tgEditMessage(token, null, null, `❌ <b>Gagal:</b> ${escapeHtml(err.message)}`, { inline_message_id: inlineMsgId });
+    } else {
+      await handleSearchError(token, chatId, err, replyId, editMsgId, guestQueryId);
+    }
   }
 }
 
-async function handleSearchTags(token, chatId, rawPhone, env, replyId = null, editMsgId = null) {
+async function handleSearchTags(token, chatId, rawPhone, env, replyId = null, editMsgId = null, inlineMsgId = null) {
   const phone = normalizePhone(rawPhone);
   if (!phone || phone.length < 8) return;
 
-  await tgSendTyping(token, chatId);
+  if (chatId && chatId !== "guest") {
+    await tgSendTyping(token, chatId);
+  }
   await recordStats(env, "total_tags");
 
   try {
@@ -568,8 +597,13 @@ async function handleSearchTags(token, chatId, rawPhone, env, replyId = null, ed
     if (!tags.length) {
       let msg = `🏷️ <b>Tag Kontak:</b> <code>${phone}</code>\n\n<i>Belum ada tag yang tersimpan untuk nomor ini.</i>`;
       if (quotaInfo) msg += `\n\n━━━━━━━━━━━━━━━━━━\n${quotaInfo}`;
-      if (editMsgId) await tgEditMessage(token, chatId, editMsgId, msg, { reply_markup: replyMarkup });
-      else await tgSendMessage(token, chatId, msg, { reply_to_message_id: replyId, reply_markup: replyMarkup });
+      if (inlineMsgId) {
+        await tgEditMessage(token, null, null, msg, { reply_markup: replyMarkup, inline_message_id: inlineMsgId });
+      } else if (editMsgId) {
+        await tgEditMessage(token, chatId, editMsgId, msg, { reply_markup: replyMarkup });
+      } else {
+        await tgSendMessage(token, chatId, msg, { reply_to_message_id: replyId, reply_markup: replyMarkup });
+      }
       return;
     }
 
@@ -595,13 +629,19 @@ async function handleSearchTags(token, chatId, rawPhone, env, replyId = null, ed
 
     const fullMsg = textParts.filter(Boolean).join("\n");
 
-    if (editMsgId) {
+    if (inlineMsgId) {
+      await tgEditMessage(token, null, null, fullMsg, { reply_markup: replyMarkup, inline_message_id: inlineMsgId });
+    } else if (editMsgId) {
       await tgEditMessage(token, chatId, editMsgId, fullMsg, { reply_markup: replyMarkup });
     } else {
       await tgSendMessage(token, chatId, fullMsg, { reply_to_message_id: replyId, reply_markup: replyMarkup });
     }
   } catch (err) {
-    await handleSearchError(token, chatId, err, replyId, editMsgId);
+    if (inlineMsgId) {
+      await tgEditMessage(token, null, null, `❌ <b>Gagal:</b> ${escapeHtml(err.message)}`, { inline_message_id: inlineMsgId });
+    } else {
+      await handleSearchError(token, chatId, err, replyId, editMsgId);
+    }
   }
 }
 
@@ -787,30 +827,43 @@ export default {
       const data = cb.data || "";
       const chatId = cb.message?.chat?.id;
       const msgId = cb.message?.message_id;
+      const inlineMsgId = cb.inline_message_id;
 
-      if (chatId) {
-        if (data === "refresh_stats") {
-          if (!isAdminUser(cb.from?.id, env)) {
-            await tgAnswerCallback(token, cb.id, "⚠️ Khusus Admin.");
-            return new Response("OK");
-          }
-          await tgAnswerCallback(token, cb.id, "Memperbarui statistik...");
+      if (data === "refresh_stats") {
+        if (!isAdminUser(cb.from?.id, env)) {
+          await tgAnswerCallback(token, cb.id, "⚠️ Khusus Admin.", true);
+          return new Response("OK");
+        }
+        await tgAnswerCallback(token, cb.id, "Memperbarui statistik...");
+        if (inlineMsgId) {
+          await handleStats(token, null, env, null, null, inlineMsgId);
+        } else if (chatId && msgId) {
           await handleStats(token, chatId, env, null, msgId);
-        } else if (data === "donate") {
-          await tgAnswerCallback(token, cb.id);
+        }
+      } else if (data === "donate") {
+        const qrisText = await kvGet(env, "assets:qris_text");
+        await tgAnswerCallback(token, cb.id, qrisText ? `☕ Dukung Bot:\n${qrisText}` : "☕ Terima kasih atas dukungan Anda!", true);
+        if (chatId) {
           await sendDonationInfo(token, chatId, env);
-        } else if (data === "captcha") {
+        }
+      } else if (data === "captcha") {
+        if (chatId) {
           await tgAnswerCallback(token, cb.id);
           await startCaptchaFlow(token, chatId, env);
-        } else if (msgId) {
-          const [action, phone] = data.split(":");
-          if (action === "tags") {
-            await tgAnswerCallback(token, cb.id, "Mengambil daftar tag...");
-            await handleSearchTags(token, chatId, phone, env, null, msgId);
-          } else if (action === "profile") {
-            await tgAnswerCallback(token, cb.id, "Mengambil profil...");
-            await handleSearchProfile(token, chatId, phone, env, null, msgId);
-          }
+        } else {
+          const botInfo = await getBotInfo(token, env);
+          await tgAnswerCallback(token, cb.id, `Silakan buka chat pribadi dengan @${botInfo.username || "bot"} untuk menyelesaikan captcha.`, true);
+        }
+      } else {
+        const [action, phone] = data.split(":");
+        if (action === "tags") {
+          await tgAnswerCallback(token, cb.id, "Mengambil daftar tag...");
+          await handleSearchTags(token, chatId, phone, env, null, msgId, inlineMsgId);
+        } else if (action === "profile") {
+          await tgAnswerCallback(token, cb.id, "Mengambil profil...");
+          await handleSearchProfile(token, chatId, phone, env, null, msgId, null, inlineMsgId);
+        } else {
+          await tgAnswerCallback(token, cb.id);
         }
       }
       return new Response("OK");
