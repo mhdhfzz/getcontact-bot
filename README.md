@@ -169,6 +169,22 @@ Teks singkat yang muncul pada profil bot:
 1. Kirim `/setuserpic` ke [@BotFather], pilih bot Anda.
 2. Kirimkan gambar atau logo yang ingin Anda gunakan sebagai avatar bot.
 
+### 6. Mengaktifkan Fitur Guest Mode di @BotFather
+
+Fitur **Guest Mode** memungkinkan bot dapat digunakan di grup, supergroup, channel, atau obrolan mana pun **TANPA PERLU bot join atau ditambahkan sebagai anggota grup!**
+
+> 💡 **Apa itu Guest Mode?**
+> Fitur resmi Telegram Bot API yang memungkinkan bot dipanggil ke dalam obrolan luar via mention (`@namabot nomor`) tanpa harus menjadi member di sana. Bot tidak perlu di-invite oleh admin grup, tidak butuh hak akses admin, dan hanya merespons pesan spesifik yang me-mention bot.
+
+**Langkah Mengaktifkan di @BotFather:**
+1. Buka [@BotFather](https://t.me/BotFather) di Telegram.
+2. Kirim perintah `/mybots`, lalu pilih bot Anda.
+3. Masuk ke menu **Bot Settings**.
+4. Pilih menu **Guest Mode** (atau buka menu pengaturan via BotFather Mini App).
+5. Klik tombol **Turn Guest Mode ON** (Aktifkan Guest Mode).
+
+Setelah aktif, pengguna di grup mana pun dapat langsung memanggil bot tanpa repot menambahkan bot ke grup.
+
 ---
 
 ## Cara Penggunaan & Daftar Perintah

@@ -175,6 +175,29 @@ async function tgCall(token, method, payload) {
 }
 
 async function tgSendMessage(token, chatId, text, options = {}) {
+  if (options.guest_query_id) {
+    try {
+      const res = await tgCall(token, "answerGuestQuery", {
+        guest_query_id: options.guest_query_id,
+        result: {
+          type: "article",
+          id: "res_" + Math.random().toString(36).substring(2, 10),
+          title: "Hasil GetContact",
+          input_message_content: {
+            message_text: text,
+            parse_mode: "HTML",
+          },
+          ...(options.reply_markup ? { reply_markup: options.reply_markup } : {}),
+        },
+      });
+      if (res && res.ok) return res;
+    } catch (e) {
+      console.error("Gagal answerGuestQuery:", e);
+    }
+  }
+
+  if (!chatId || chatId === "guest") return { ok: false };
+
   return tgCall(token, "sendMessage", {
     chat_id: chatId,
     text,
@@ -233,6 +256,7 @@ async function tgAnswerCallback(token, callbackQueryId, text = "") {
 }
 
 async function tgSendTyping(token, chatId) {
+  if (!chatId || chatId === "guest") return;
   try {
     await tgCall(token, "sendChatAction", { chat_id: chatId, action: "typing" });
   } catch { }
@@ -445,12 +469,12 @@ async function saveAccountStore(env, store) {
 // ==========================================
 // HANDLER PENCARIAN PROFIL & TAGS
 // ==========================================
-async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null, editMsgId = null) {
+async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null, editMsgId = null, guestQueryId = null) {
   const phone = normalizePhone(rawPhone);
   if (!phone || phone.length < 8) {
     const errorText = "⚠️ <b>Nomor telepon tidak valid.</b>\nContoh: <code>081234567890</code>";
     if (editMsgId) await tgEditMessage(token, chatId, editMsgId, errorText);
-    else await tgSendMessage(token, chatId, errorText, { reply_to_message_id: replyId });
+    else await tgSendMessage(token, chatId, errorText, { reply_to_message_id: replyId, guest_query_id: guestQueryId });
     return;
   }
 
@@ -468,7 +492,7 @@ async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null,
     if (!profile) {
       const notFound = `🔍 <b>Hasil:</b> <code>${phone}</code>\n\nNomor ini belum terdaftar di database GetContact.`;
       if (editMsgId) await tgEditMessage(token, chatId, editMsgId, notFound);
-      else await tgSendMessage(token, chatId, notFound, { reply_to_message_id: replyId });
+      else await tgSendMessage(token, chatId, notFound, { reply_to_message_id: replyId, guest_query_id: guestQueryId });
       return;
     }
 
@@ -506,10 +530,14 @@ async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null,
     if (editMsgId) {
       await tgEditMessage(token, chatId, editMsgId, text, { reply_markup: replyMarkup });
     } else {
-      await tgSendMessage(token, chatId, text, { reply_to_message_id: replyId, reply_markup: replyMarkup });
+      await tgSendMessage(token, chatId, text, {
+        reply_to_message_id: replyId,
+        reply_markup: replyMarkup,
+        guest_query_id: guestQueryId,
+      });
     }
   } catch (err) {
-    await handleSearchError(token, chatId, err, replyId, editMsgId);
+    await handleSearchError(token, chatId, err, replyId, editMsgId, guestQueryId);
   }
 }
 
@@ -577,7 +605,7 @@ async function handleSearchTags(token, chatId, rawPhone, env, replyId = null, ed
   }
 }
 
-async function handleSearchError(token, chatId, err, replyId, editMsgId) {
+async function handleSearchError(token, chatId, err, replyId, editMsgId, guestQueryId = null) {
   let errText = `❌ <b>Gagal:</b> ${escapeHtml(err.message)}`;
   const replyMarkup = err.isCaptcha
     ? { inline_keyboard: [[{ text: `🔓 Selesaikan Captcha Sekarang`, callback_data: `captcha` }]] }
@@ -590,7 +618,11 @@ async function handleSearchError(token, chatId, err, replyId, editMsgId) {
   if (editMsgId) {
     await tgEditMessage(token, chatId, editMsgId, errText, { reply_markup: replyMarkup });
   } else {
-    await tgSendMessage(token, chatId, errText, { reply_to_message_id: replyId, reply_markup: replyMarkup });
+    await tgSendMessage(token, chatId, errText, {
+      reply_to_message_id: replyId,
+      reply_markup: replyMarkup,
+      guest_query_id: guestQueryId,
+    });
   }
 }
 
@@ -784,13 +816,14 @@ export default {
       return new Response("OK");
     }
 
-    const msg = update.message || update.channel_post;
+    const msg = update.message || update.channel_post || update.guest_message;
     if (!msg) return new Response("OK");
 
-    const chatId = msg.chat.id;
-    const chatType = msg.chat?.type || "private";
+    const guestQueryId = msg.guest_query_id || update.guest_message?.guest_query_id || null;
+    const chatId = msg.chat?.id || (guestQueryId ? "guest" : null);
+    const chatType = msg.chat?.type || (guestQueryId ? "group" : "private");
     const isPrivate = chatType === "private";
-    const userId = msg.from?.id;
+    const userId = msg.from?.id || msg.guest_bot_caller_user?.id;
     const text = (msg.text || msg.caption || "").trim();
 
     // Catat statistik pengguna & grup (Guest Mode)
@@ -1036,8 +1069,8 @@ export default {
     );
     const isSearchCmd = text.startsWith("/search") || text.startsWith("/lookup");
 
-    // Jika di grup dan bukan ditujukan ke bot (bukan mention, bukan reply bot, bukan command), abaikan
-    if (!isPrivate && !isMentioned && !isReplyToBot && !isSearchCmd) {
+    // Jika di grup dan bukan ditujukan ke bot (bukan mention, bukan reply bot, bukan command, bukan guest message), abaikan
+    if (!isPrivate && !isMentioned && !isReplyToBot && !isSearchCmd && !guestQueryId) {
       return new Response("OK");
     }
 
@@ -1057,7 +1090,7 @@ export default {
     }
 
     if (targetPhone) {
-      await handleSearchProfile(token, chatId, targetPhone, env, msg.message_id);
+      await handleSearchProfile(token, chatId, targetPhone, env, msg.message_id, null, guestQueryId);
       return new Response("OK");
     }
 
@@ -1078,13 +1111,13 @@ export default {
           { reply_to_message_id: msg.message_id }
         );
       }
-    } else if (isMentioned || isSearchCmd) {
+    } else if (isMentioned || isSearchCmd || guestQueryId) {
       const bTag = botUsername ? `@${botUsername}` : "@namabot";
       await tgSendMessage(
         token,
         chatId,
-        `👋 <b>Guest Mode GetContact</b>\n\nNomor telepon tidak ditemukan. Cara penggunaan di grup:\n• Kirim pesan: <code>${bTag} 081234567890</code>\n• Atau <b>reply</b> pesan target yang berisi nomor telepon dengan mention <code>${bTag}</code>\n• Atau <b>reply</b> pesan bot dengan nomor HP.`,
-        { reply_to_message_id: msg.message_id }
+        `👋 <b>Guest Mode GetContact</b>\n\nNomor telepon tidak ditemukan. Cara penggunaan di grup (tanpa join):\n• Kirim pesan: <code>${bTag} 081234567890</code>\n• Atau <b>reply</b> pesan target yang berisi nomor telepon dengan mention <code>${bTag}</code>`,
+        { reply_to_message_id: msg.message_id, guest_query_id: guestQueryId }
       );
     }
 
