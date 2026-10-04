@@ -243,6 +243,7 @@ Perintah berikut hanya dapat dijalankan oleh akun Telegram yang ID-nya terdaftar
 
 | Perintah Admin | Keterangan |
 | :--- | :--- |
+| `/admin` atau `/adminhelp` | **Menu Admin**: Menampilkan panduan dan daftar lengkap seluruh perintah khusus Admin |
 | `/stats` | **Statistik Bot**: Menampilkan analitik pengguna unik, grup unik (Guest Mode), total pencarian profil & tag, captcha terselesaikan, status akun aktif & sisa kuota, serta status donasi QRIS (dilengkapi tombol refresh interaktif) |
 | `/accounts` atau `/listacc` | Melihat daftar seluruh akun GetContact tersimpan |
 | `/useacc <nama>` | Mengganti akun GetContact yang sedang aktif digunakan |

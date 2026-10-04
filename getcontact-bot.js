@@ -1120,7 +1120,7 @@ export default {
     if (text === "/start" || text === "/help" || text.startsWith("/start@") || text.startsWith("/help@")) {
       const botInfo = await getBotInfo(token, env);
       const bTag = botInfo?.username ? `@${botInfo.username}` : "@namabot";
-      const welcome = [
+      const welcomeParts = [
         `👋 <b>Selamat Datang di GetContact Bot!</b>`,
         ``,
         `Cari identitas dan daftar tag nomor telepon langsung dari GetContact.`,
@@ -1135,9 +1135,64 @@ export default {
         `   • Atau <b>reply</b> pesan bot dengan nomor HP target`,
         ``,
         `💡 <i>Setiap hasil pencarian otomatis menyertakan sisa kuota, tombol interaktif untuk melihat daftar tag, refresh profil, dan donasi.</i>`,
+      ];
+
+      if (isAdminUser(userId, env)) {
+        welcomeParts.push(
+          ``,
+          `👑 <b>Menu Admin:</b>`,
+          `Ketik <code>/admin</code> untuk melihat seluruh daftar perintah khusus Admin.`
+        );
+      }
+
+      await tgSendMessage(token, chatId, welcomeParts.join("\n"));
+      return new Response("OK");
+    }
+
+    // ----------------------------------------------------
+    // PERINTAH ADMIN: /admin atau /adminhelp (Daftar semua perintah admin)
+    // ----------------------------------------------------
+    if (text === "/admin" || text === "/adminhelp" || text.startsWith("/admin@") || text.startsWith("/adminhelp@")) {
+      if (!isAdminUser(userId, env)) {
+        await tgSendMessage(token, chatId, "⚠️ Perintah ini khusus untuk Admin.", {
+          reply_to_message_id: msg.message_id,
+        });
+        return new Response("OK");
+      }
+
+      const adminHelp = [
+        `👑 <b>Panel & Daftar Perintah Khusus Admin</b>`,
+        `━━━━━━━━━━━━━━━━━━`,
+        `Berikut daftar lengkap perintah untuk mengelola bot:`,
+        ``,
+        `📊 <b>Statistik & Status:</b>`,
+        `• <code>/stats</code>`,
+        `  <i>Melihat total user, total grup, kuota sisa akun aktif, dan status QRIS.</i>`,
+        ``,
+        `👥 <b>Manajemen Akun (Multi-Akun & Rotasi):</b>`,
+        `• <code>/accounts</code> atau <code>/listacc</code>`,
+        `  <i>Melihat semua akun tersimpan dan akun yang sedang aktif.</i>`,
+        `• <code>/useacc &lt;nama_akun&gt;</code>`,
+        `  <i>Beralih ke akun tertentu secara manual.</i>`,
+        `• <code>/addacc &lt;nama&gt; &lt;token&gt; &lt;finalKey&gt; &lt;deviceId&gt;</code>`,
+        `  <i>Mendaftarkan akun GetContact baru ke database KV.</i>`,
+        `• <code>/delacc &lt;nama_akun&gt;</code>`,
+        `  <i>Menghapus akun cadangan dari daftar.</i>`,
+        `  <i>(Catatan: Bot otomatis merotasi akun jika akun aktif terkena limit 403021 atau autentikasi kedaluwarsa 403001).</i>`,
+        ``,
+        `📢 <b>Pengumuman & Siaran:</b>`,
+        `• <code>/bc &lt;pesan&gt;</code> atau <code>/broadcast &lt;pesan&gt;</code>`,
+        `  <i>Mengirim pesan pengumuman resmi ke seluruh pengguna chat pribadi bot.</i>`,
+        ``,
+        `☕ <b>Donasi QRIS:</b>`,
+        `• <code>/setqris</code>`,
+        `  <i>Mengatur/mengunggah gambar QRIS dan teks catatan donasi.</i>`,
+        ``,
+        `━━━━━━━━━━━━━━━━━━`,
+        `💡 <i>Tip: Anda dapat mengetuk (tap) pada teks kode di atas untuk langsung menyalin perintah!</i>`,
       ].join("\n");
 
-      await tgSendMessage(token, chatId, welcome);
+      await tgSendMessage(token, chatId, adminHelp, { reply_to_message_id: msg.message_id });
       return new Response("OK");
     }
 
