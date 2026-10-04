@@ -670,12 +670,19 @@ async function handleSearchTags(token, chatId, rawPhone, env, replyId = null, ed
 
 async function handleSearchError(token, chatId, err, replyId, editMsgId, guestQueryId = null) {
   let errText = `❌ <b>Gagal:</b> ${escapeHtml(err.message)}`;
-  const replyMarkup = err.isCaptcha
-    ? { inline_keyboard: [[{ text: `🔓 Selesaikan Captcha Sekarang`, callback_data: `captcha` }]] }
-    : undefined;
+  let replyMarkup = undefined;
 
   if (err.isCaptcha) {
     errText = `⚠️ <b>Akun Terkena Pembatasan (Captcha)</b>\n\nAkun GetContact saat ini membutuhkan penyelesaian Captcha untuk membuka blokir. Tekan tombol di bawah untuk verifikasi.`;
+    replyMarkup = { inline_keyboard: [[{ text: `🔓 Selesaikan Captcha Sekarang`, callback_data: `captcha` }]] };
+  } else if (err.errorCode === "403021" || (err.message || "").toLowerCase().includes("maximum query limit")) {
+    errText = [
+      `⚠️ <b>Batas Kuota Tag Tercapai (Limit)</b>`,
+      `━━━━━━━━━━━━━━━━━━`,
+      `Akun GetContact bot telah mencapai batas maksimum untuk melihat detail/tag nomor baru (Sisa Kuota Tag: 0).`,
+      ``,
+      `💡 <i>Pencarian profil nama nomor masih tetap berfungsi normal. Kuota tag akan diperbarui otomatis saat masa aktif paket ter-reset, atau Admin dapat mengganti ke akun lain menggunakan perintah /useacc.</i>`,
+    ].join("\n");
   }
 
   if (editMsgId) {
