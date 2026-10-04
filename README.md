@@ -248,6 +248,7 @@ Perintah berikut hanya dapat dijalankan oleh akun Telegram yang ID-nya terdaftar
 | `/useacc <nama>` | Mengganti akun GetContact yang sedang aktif digunakan |
 | `/addacc <nama> <token> <finalKey> <deviceId>` | Menambahkan akun GetContact baru ke database KV |
 | `/delacc <nama>` | Menghapus akun GetContact dari daftar |
+| `/broadcast <pesan>` atau `/bc <pesan>` | **Broadcast Pengumuman**: Mengirimkan pesan status/pengumuman resmi ke seluruh pengguna chat pribadi |
 | `/setqris` | Mengatur / mengunggah gambar QRIS donasi langsung dari chat |
 
 

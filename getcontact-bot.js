@@ -331,9 +331,46 @@ function extractPhoneFromText(text) {
   return null;
 }
 
+// ==========================================
+// PEREKAMAN PENERIMA BROADCAST PRIBADI
+// ==========================================
+async function addBroadcastUser(env, chatId) {
+  if (!chatId || chatId === "guest") return;
+  const numId = Number(chatId);
+  if (isNaN(numId) || numId < 0) return; // Khusus private chat (chat ID positif)
+  try {
+    const raw = await kvGet(env, "broadcast:users");
+    let users = [];
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) users = parsed;
+      } catch { }
+    }
+    const idStr = String(chatId);
+    if (!users.includes(idStr)) {
+      users.push(idStr);
+      await kvPut(env, "broadcast:users", JSON.stringify(users));
+    }
+  } catch (e) {
+    console.error("Gagal menyimpan broadcast user:", e);
+  }
+}
+
+async function getBroadcastUsers(env) {
+  try {
+    const raw = await kvGet(env, "broadcast:users");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch { }
+  return [];
+}
+
 async function recordStats(env, type, chatId = null, userId = null, chatType = "private") {
   try {
-    // 1. Catat user unik
+    // 1. Catat user unik & simpan ke daftar broadcast jika private chat
     if (userId) {
       const uKey = `user:${userId}`;
       const exists = await kvGet(env, uKey);
@@ -342,6 +379,9 @@ async function recordStats(env, type, chatId = null, userId = null, chatType = "
         const count = parseInt((await kvGet(env, "stats:total_users")) || "0", 10);
         await kvPut(env, "stats:total_users", String(count + 1));
       }
+    }
+    if (chatId && chatType === "private" && chatId !== "guest") {
+      await addBroadcastUser(env, chatId);
     }
 
     // 2. Catat grup unik (Guest Mode)
@@ -507,6 +547,60 @@ async function saveAccountStore(env, store) {
   await kvPut(env, "config:accounts", JSON.stringify(store));
 }
 
+// Rotasi akun otomatis saat terkena limit 403021
+async function rotateToNextAccount(env, failedAccountName) {
+  const store = await loadAccountStore(env);
+  const accountNames = Object.keys(store.accounts || {});
+
+  // Sertakan 'default' jika ada kredensial di env var
+  if (env.GTC_TOKEN && !accountNames.includes("default")) {
+    accountNames.unshift("default");
+  }
+
+  // Jika akun yang tersedia hanya 1 atau tidak ada akun lain, tidak bisa rotasi
+  if (accountNames.length <= 1) {
+    return null;
+  }
+
+  const currentIndex = accountNames.indexOf(failedAccountName);
+  const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % accountNames.length : 0;
+  const nextName = accountNames[nextIndex];
+
+  if (nextName === failedAccountName) {
+    return null;
+  }
+
+  store.active = nextName;
+  await saveAccountStore(env, store);
+
+  let newCreds;
+  if (nextName === "default") {
+    newCreds = {
+      name: "default",
+      token: env.GTC_TOKEN,
+      finalKey: env.GTC_FINAL_KEY,
+      clientDeviceId: env.GTC_DEVICE_ID,
+    };
+  } else {
+    newCreds = { name: nextName, ...store.accounts[nextName] };
+  }
+
+  // Kirim notifikasi alert ke Admin
+  const adminChatId = env.ADMIN_CHAT_ID;
+  const botToken = env.TELEGRAM_BOT_TOKEN;
+  if (adminChatId && botToken) {
+    const alertMsg = [
+      `⚠️ <b>Notifikasi Rotasi Akun Otomatis</b>`,
+      `━━━━━━━━━━━━━━━━━━`,
+      `Akun <code>${escapeHtml(failedAccountName)}</code> telah mencapai batas kuota (Code: 403021).`,
+      `Sistem otomatis beralih ke akun cadangan: <code>${escapeHtml(nextName)}</code>.`,
+    ].join("\n");
+    tgSendMessage(botToken, adminChatId, alertMsg).catch(() => {});
+  }
+
+  return newCreds;
+}
+
 // ==========================================
 // HANDLER PENCARIAN PROFIL & TAGS
 // ==========================================
@@ -526,9 +620,27 @@ async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null,
   await recordStats(env, "total_searches");
 
   try {
-    const creds = await getActiveCreds(env);
-    const res = await gtcCall("/v2.8/search", { countryCode: COUNTRY, phoneNumber: phone, source: "search", token: creds.token }, creds, env);
-    const quotaInfo = formatQuotaInfo(res.result?.subscriptionInfo) || (await getQuotaSummary(creds, env));
+    let creds = await getActiveCreds(env);
+    let res;
+    let quotaInfo;
+
+    try {
+      res = await gtcCall("/v2.8/search", { countryCode: COUNTRY, phoneNumber: phone, source: "search", token: creds.token }, creds, env);
+      quotaInfo = formatQuotaInfo(res.result?.subscriptionInfo) || (await getQuotaSummary(creds, env));
+    } catch (err) {
+      if (err.errorCode === "403021" || (err.message || "").toLowerCase().includes("maximum query limit")) {
+        const nextCreds = await rotateToNextAccount(env, creds.name);
+        if (nextCreds) {
+          creds = nextCreds;
+          res = await gtcCall("/v2.8/search", { countryCode: COUNTRY, phoneNumber: phone, source: "search", token: creds.token }, creds, env);
+          quotaInfo = formatQuotaInfo(res.result?.subscriptionInfo) || (await getQuotaSummary(creds, env));
+        } else {
+          throw err;
+        }
+      } else {
+        throw err;
+      }
+    }
 
     const profile = res.result?.profile;
     if (!profile) {
@@ -600,9 +712,27 @@ async function handleSearchTags(token, chatId, rawPhone, env, replyId = null, ed
   await recordStats(env, "total_tags");
 
   try {
-    const creds = await getActiveCreds(env);
-    const res = await gtcCall("/v2.8/number-detail", { countryCode: COUNTRY, phoneNumber: phone, source: "profile", token: creds.token }, creds, env);
-    const quotaInfo = formatQuotaInfo(res.result?.subscriptionInfo) || (await getQuotaSummary(creds, env));
+    let creds = await getActiveCreds(env);
+    let res;
+    let quotaInfo;
+
+    try {
+      res = await gtcCall("/v2.8/number-detail", { countryCode: COUNTRY, phoneNumber: phone, source: "profile", token: creds.token }, creds, env);
+      quotaInfo = formatQuotaInfo(res.result?.subscriptionInfo) || (await getQuotaSummary(creds, env));
+    } catch (err) {
+      if (err.errorCode === "403021" || (err.message || "").toLowerCase().includes("maximum query limit")) {
+        const nextCreds = await rotateToNextAccount(env, creds.name);
+        if (nextCreds) {
+          creds = nextCreds;
+          res = await gtcCall("/v2.8/number-detail", { countryCode: COUNTRY, phoneNumber: phone, source: "profile", token: creds.token }, creds, env);
+          quotaInfo = formatQuotaInfo(res.result?.subscriptionInfo) || (await getQuotaSummary(creds, env));
+        } else {
+          throw err;
+        }
+      } else {
+        throw err;
+      }
+    }
 
     const tags = res.result?.tags || [];
     const replyMarkup = {
@@ -1144,6 +1274,92 @@ export default {
         return new Response("OK");
       }
       await handleStats(token, chatId, env, msg.message_id);
+      return new Response("OK");
+    }
+
+    // ----------------------------------------------------
+    // PERINTAH ADMIN: /broadcast atau /bc (Kirim pesan ke seluruh pengguna pribadi)
+    // ----------------------------------------------------
+    if (text.startsWith("/broadcast") || text.startsWith("/bc")) {
+      if (!isAdminUser(userId, env)) {
+        await tgSendMessage(token, chatId, "⚠️ Perintah ini khusus untuk Admin.", {
+          reply_to_message_id: msg.message_id,
+        });
+        return new Response("OK");
+      }
+
+      const match = text.match(/^\/(?:broadcast|bc)(?:@\w+)?(?:\s+([\s\S]+))?$/i);
+      const broadcastMsg = (match && match[1]) ? match[1].trim() : "";
+
+      if (!broadcastMsg) {
+        await tgSendMessage(
+          token,
+          chatId,
+          "⚠️ <b>Format Penggunaan:</b>\n<code>/bc &lt;pesan pengumuman&gt;</code>\n\nContoh:\n<code>/bc Halo semua, status bot saat ini aktif dan kuota akun telah diperbarui.</code>",
+          { reply_to_message_id: msg.message_id }
+        );
+        return new Response("OK");
+      }
+
+      const recipients = await getBroadcastUsers(env);
+      if (!recipients.length) {
+        await tgSendMessage(
+          token,
+          chatId,
+          "ℹ️ <b>Belum ada pengguna pribadi yang tercatat di database untuk menerima broadcast.</b>",
+          { reply_to_message_id: msg.message_id }
+        );
+        return new Response("OK");
+      }
+
+      const progressMsg = await tgSendMessage(
+        token,
+        chatId,
+        `⏳ <b>Mengirim broadcast ke ${recipients.length} pengguna...</b>`,
+        { reply_to_message_id: msg.message_id }
+      );
+
+      // Template pesan sesuai spesifikasi user
+      const fullContent = [
+        broadcastMsg,
+        `━━━━━━━━━━━━━━━━━━`,
+        `<i>Pesan ini dikirim oleh Admin kepada seluruh pengguna GetContact Bot.</i>`,
+      ].join("\n");
+
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const targetId of recipients) {
+        try {
+          const res = await tgCall(token, "sendMessage", {
+            chat_id: targetId,
+            text: fullContent,
+            parse_mode: "HTML",
+          });
+          if (res && res.ok) {
+            successCount++;
+          } else {
+            failCount++;
+          }
+        } catch {
+          failCount++;
+        }
+      }
+
+      const reportText = [
+        `📊 <b>Laporan Broadcast Selesai</b>`,
+        `━━━━━━━━━━━━━━━━━━`,
+        `✅ <b>Berhasil terkirim:</b> <code>${successCount}</code> pengguna`,
+        `❌ <b>Gagal / Diblokir:</b> <code>${failCount}</code> pengguna`,
+        `👥 <b>Total Target:</b> <code>${recipients.length}</code> pengguna`,
+      ].join("\n");
+
+      if (progressMsg && progressMsg.result?.message_id) {
+        await tgEditMessage(token, chatId, progressMsg.result.message_id, reportText);
+      } else {
+        await tgSendMessage(token, chatId, reportText, { reply_to_message_id: msg.message_id });
+      }
+
       return new Response("OK");
     }
 
