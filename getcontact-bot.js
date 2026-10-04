@@ -1039,6 +1039,116 @@ export default {
           const botInfo = await getBotInfo(token, env);
           await tgAnswerCallback(token, cb.id, `Silakan buka chat pribadi dengan @${botInfo.username || "bot"} untuk menyelesaikan captcha.`, true);
         }
+      } else if (data.startsWith("bc_confirm:") || data.startsWith("bc_cancel:")) {
+        if (!isAdminUser(cb.from?.id, env)) {
+          await tgAnswerCallback(token, cb.id, "⚠️ Khusus Admin.", true);
+          return new Response("OK");
+        }
+
+        const isConfirm = data.startsWith("bc_confirm:");
+        const draftId = data.replace(/^bc_(?:confirm|cancel):/, "");
+        const draftKey = `bc:draft:${draftId}`;
+
+        const draftRaw = await kvGet(env, draftKey);
+        if (!draftRaw) {
+          await tgAnswerCallback(token, cb.id, "⚠️ Draf broadcast sudah kedaluwarsa atau telah diproses.", true);
+          if (chatId && msgId) {
+            await tgEditMessage(
+              token,
+              chatId,
+              msgId,
+              "⚠️ <b>Draf broadcast ini sudah kedaluwarsa atau telah diproses sebelumnya.</b>",
+              { reply_markup: { inline_keyboard: [] } }
+            );
+          }
+          return new Response("OK");
+        }
+
+        // Hapus draf agar tidak dapat ditekan ganda (idempotent)
+        await kvDelete(env, draftKey);
+
+        if (!isConfirm) {
+          await tgAnswerCallback(token, cb.id, "Broadcast dibatalkan.");
+          if (chatId && msgId) {
+            await tgEditMessage(
+              token,
+              chatId,
+              msgId,
+              "❌ <b>Pengiriman broadcast telah dibatalkan oleh Admin.</b>",
+              { reply_markup: { inline_keyboard: [] } }
+            );
+          }
+          return new Response("OK");
+        }
+
+        let draft;
+        try {
+          draft = JSON.parse(draftRaw);
+        } catch {
+          await tgAnswerCallback(token, cb.id, "⚠️ Gagal membaca draf pesan.", true);
+          return new Response("OK");
+        }
+
+        await tgAnswerCallback(token, cb.id, "🚀 Mengirim broadcast...");
+
+        const recipients = await getBroadcastUsers(env);
+        if (chatId && msgId) {
+          await tgEditMessage(
+            token,
+            chatId,
+            msgId,
+            `⏳ <b>Sedang mengirim broadcast ke ${recipients.length} pengguna...</b>`,
+            { reply_markup: { inline_keyboard: [] } }
+          );
+        }
+
+        const buildMessage = (txt) => [
+          txt,
+          `━━━━━━━━━━━━━━━━━━`,
+          `<i>Pesan ini dikirim oleh Admin kepada seluruh pengguna GetContact Bot.</i>`,
+        ].join("\n");
+
+        let fullContent = buildMessage(draft.text);
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const targetId of recipients) {
+          try {
+            let res = await tgCall(token, "sendMessage", {
+              chat_id: targetId,
+              text: fullContent,
+              parse_mode: "HTML",
+            });
+            if (!res || !res.ok) {
+              // Coba fallback plain/escaped jika tag HTML pesan bermasalah
+              res = await tgCall(token, "sendMessage", {
+                chat_id: targetId,
+                text: buildMessage(escapeHtml(draft.text)),
+                parse_mode: "HTML",
+              });
+            }
+            if (res && res.ok) {
+              successCount++;
+            } else {
+              failCount++;
+            }
+          } catch {
+            failCount++;
+          }
+        }
+
+        const reportText = [
+          `📊 <b>Laporan Broadcast Selesai</b>`,
+          `━━━━━━━━━━━━━━━━━━`,
+          `✅ <b>Berhasil terkirim:</b> <code>${successCount}</code> pengguna`,
+          `❌ <b>Gagal / Diblokir:</b> <code>${failCount}</code> pengguna`,
+          `👥 <b>Total Target:</b> <code>${recipients.length}</code> pengguna`,
+        ].join("\n");
+
+        if (chatId && msgId) {
+          await tgEditMessage(token, chatId, msgId, reportText);
+        }
+        return new Response("OK");
       } else {
         const [action, phone, ownerId] = data.split(":");
         if (action === "tags" || action === "profile") {
@@ -1182,7 +1292,7 @@ export default {
         ``,
         `📢 <b>Pengumuman & Siaran:</b>`,
         `• <code>/bc &lt;pesan&gt;</code> atau <code>/broadcast &lt;pesan&gt;</code>`,
-        `  <i>Mengirim pesan pengumuman resmi ke seluruh pengguna chat pribadi bot.</i>`,
+        `  <i>Mengirim pesan ke seluruh pengguna pribadi (ada preview & tombol konfirmasi kirim/batal).</i>`,
         ``,
         `☕ <b>Donasi QRIS:</b>`,
         `• <code>/setqris</code>`,
@@ -1391,52 +1501,56 @@ export default {
         return new Response("OK");
       }
 
-      const progressMsg = await tgSendMessage(
-        token,
-        chatId,
-        `⏳ <b>Mengirim broadcast ke ${recipients.length} pengguna...</b>`,
-        { reply_to_message_id: msg.message_id }
-      );
+      // Simpan draf broadcast ke KV dengan masa berlaku 1 jam (3600s)
+      const draftId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      await kvPut(env, `bc:draft:${draftId}`, JSON.stringify({
+        text: broadcastMsg,
+        adminId: userId,
+        createdAt: Date.now(),
+      }), { expirationTtl: 3600 });
 
-      // Template pesan sesuai spesifikasi user
-      const fullContent = [
+      const previewButtons = {
+        inline_keyboard: [
+          [
+            { text: "🚀 Konfirmasi Kirim", callback_data: `bc_confirm:${draftId}` },
+            { text: "❌ Batal", callback_data: `bc_cancel:${draftId}` },
+          ],
+        ],
+      };
+
+      const previewText = [
+        `👁️ <b>PREVIEW PESAN BROADCAST</b>`,
+        `━━━━━━━━━━━━━━━━━━`,
         broadcastMsg,
         `━━━━━━━━━━━━━━━━━━`,
         `<i>Pesan ini dikirim oleh Admin kepada seluruh pengguna GetContact Bot.</i>`,
-      ].join("\n");
-
-      let successCount = 0;
-      let failCount = 0;
-
-      for (const targetId of recipients) {
-        try {
-          const res = await tgCall(token, "sendMessage", {
-            chat_id: targetId,
-            text: fullContent,
-            parse_mode: "HTML",
-          });
-          if (res && res.ok) {
-            successCount++;
-          } else {
-            failCount++;
-          }
-        } catch {
-          failCount++;
-        }
-      }
-
-      const reportText = [
-        `📊 <b>Laporan Broadcast Selesai</b>`,
         `━━━━━━━━━━━━━━━━━━`,
-        `✅ <b>Berhasil terkirim:</b> <code>${successCount}</code> pengguna`,
-        `❌ <b>Gagal / Diblokir:</b> <code>${failCount}</code> pengguna`,
-        `👥 <b>Total Target:</b> <code>${recipients.length}</code> pengguna`,
+        `👥 <b>Target Penerima:</b> <code>${recipients.length}</code> pengguna pribadi`,
+        `❓ <i>Silakan periksa tampilan pesan di atas. Tekan <b>Konfirmasi Kirim</b> untuk menyebarkan sekarang atau <b>Batal</b>.</i>`,
       ].join("\n");
 
-      if (progressMsg && progressMsg.result?.message_id) {
-        await tgEditMessage(token, chatId, progressMsg.result.message_id, reportText);
-      } else {
-        await tgSendMessage(token, chatId, reportText, { reply_to_message_id: msg.message_id });
+      let sent = await tgSendMessage(token, chatId, previewText, {
+        reply_to_message_id: msg.message_id,
+        reply_markup: previewButtons,
+      });
+
+      if (!sent || !sent.ok) {
+        // Fallback jika pesan mengandung karakter HTML yang tidak valid
+        const safePreview = [
+          `👁️ <b>PREVIEW PESAN BROADCAST</b>`,
+          `━━━━━━━━━━━━━━━━━━`,
+          escapeHtml(broadcastMsg),
+          `━━━━━━━━━━━━━━━━━━`,
+          `<i>Pesan ini dikirim oleh Admin kepada seluruh pengguna GetContact Bot.</i>`,
+          `━━━━━━━━━━━━━━━━━━`,
+          `👥 <b>Target Penerima:</b> <code>${recipients.length}</code> pengguna pribadi`,
+          `❓ <i>Silakan periksa tampilan pesan di atas. Tekan <b>Konfirmasi Kirim</b> untuk menyebarkan sekarang atau <b>Batal</b>.</i>`,
+        ].join("\n");
+
+        await tgSendMessage(token, chatId, safePreview, {
+          reply_to_message_id: msg.message_id,
+          reply_markup: previewButtons,
+        });
       }
 
       return new Response("OK");
