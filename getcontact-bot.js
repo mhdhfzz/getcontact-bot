@@ -547,8 +547,23 @@ async function saveAccountStore(env, store) {
   await kvPut(env, "config:accounts", JSON.stringify(store));
 }
 
-// Rotasi akun otomatis saat terkena limit 403021
-async function rotateToNextAccount(env, failedAccountName) {
+// Memeriksa apakah error memicu rotasi akun otomatis:
+// 403021 = maximum query limit (kuota habis)
+// 403001 = Authentication failed (token invalid / kedaluwarsa)
+function isRotatableError(err) {
+  if (!err) return false;
+  const code = String(err.errorCode || "");
+  const msg = String(err.message || "").toLowerCase();
+  return (
+    code === "403021" ||
+    code === "403001" ||
+    msg.includes("maximum query limit") ||
+    msg.includes("authentication failed")
+  );
+}
+
+// Rotasi akun otomatis saat terkena limit 403021 atau autentikasi kedaluwarsa 403001
+async function rotateToNextAccount(env, failedAccountName, reason = "") {
   const store = await loadAccountStore(env);
   const accountNames = Object.keys(store.accounts || {});
 
@@ -589,10 +604,11 @@ async function rotateToNextAccount(env, failedAccountName) {
   const adminChatId = env.ADMIN_CHAT_ID;
   const botToken = env.TELEGRAM_BOT_TOKEN;
   if (adminChatId && botToken) {
+    const reasonText = reason || "Limit Kuota (403021) / Autentikasi Gagal (403001)";
     const alertMsg = [
       `⚠️ <b>Notifikasi Rotasi Akun Otomatis</b>`,
       `━━━━━━━━━━━━━━━━━━`,
-      `Akun <code>${escapeHtml(failedAccountName)}</code> telah mencapai batas kuota (Code: 403021).`,
+      `Akun <code>${escapeHtml(failedAccountName)}</code> bermasalah: <i>${escapeHtml(reasonText)}</i>.`,
       `Sistem otomatis beralih ke akun cadangan: <code>${escapeHtml(nextName)}</code>.`,
     ].join("\n");
     tgSendMessage(botToken, adminChatId, alertMsg).catch(() => {});
@@ -628,8 +644,8 @@ async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null,
       res = await gtcCall("/v2.8/search", { countryCode: COUNTRY, phoneNumber: phone, source: "search", token: creds.token }, creds, env);
       quotaInfo = formatQuotaInfo(res.result?.subscriptionInfo) || (await getQuotaSummary(creds, env));
     } catch (err) {
-      if (err.errorCode === "403021" || (err.message || "").toLowerCase().includes("maximum query limit")) {
-        const nextCreds = await rotateToNextAccount(env, creds.name);
+      if (isRotatableError(err)) {
+        const nextCreds = await rotateToNextAccount(env, creds.name, err.message);
         if (nextCreds) {
           creds = nextCreds;
           res = await gtcCall("/v2.8/search", { countryCode: COUNTRY, phoneNumber: phone, source: "search", token: creds.token }, creds, env);
@@ -720,8 +736,8 @@ async function handleSearchTags(token, chatId, rawPhone, env, replyId = null, ed
       res = await gtcCall("/v2.8/number-detail", { countryCode: COUNTRY, phoneNumber: phone, source: "profile", token: creds.token }, creds, env);
       quotaInfo = formatQuotaInfo(res.result?.subscriptionInfo) || (await getQuotaSummary(creds, env));
     } catch (err) {
-      if (err.errorCode === "403021" || (err.message || "").toLowerCase().includes("maximum query limit")) {
-        const nextCreds = await rotateToNextAccount(env, creds.name);
+      if (isRotatableError(err)) {
+        const nextCreds = await rotateToNextAccount(env, creds.name, err.message);
         if (nextCreds) {
           creds = nextCreds;
           res = await gtcCall("/v2.8/number-detail", { countryCode: COUNTRY, phoneNumber: phone, source: "profile", token: creds.token }, creds, env);
@@ -812,6 +828,14 @@ async function handleSearchError(token, chatId, err, replyId, editMsgId, guestQu
       `Akun GetContact bot telah mencapai batas maksimum untuk melihat detail/tag nomor baru (Sisa Kuota Tag: 0).`,
       ``,
       `💡 <i>Pencarian profil nama nomor masih tetap berfungsi normal. Kuota tag akan diperbarui otomatis saat masa aktif paket ter-reset, atau Admin dapat mengganti ke akun lain menggunakan perintah /useacc.</i>`,
+    ].join("\n");
+  } else if (err.errorCode === "403001" || (err.message || "").toLowerCase().includes("authentication failed")) {
+    errText = [
+      `⚠️ <b>Autentikasi Akun Gagal / Kedaluwarsa (Code: 403001)</b>`,
+      `━━━━━━━━━━━━━━━━━━`,
+      `Token akun GetContact tidak valid atau sesi login telah kedaluwarsa.`,
+      ``,
+      `💡 <i>Admin dapat mendaftarkan akun baru via /addacc atau beralih ke akun cadangan lain dengan /useacc.</i>`,
     ].join("\n");
   }
 
