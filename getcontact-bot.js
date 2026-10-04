@@ -97,11 +97,12 @@ async function kvDelete(env, key) {
 // ==========================================
 // REQUEST GETCONTACT SERVICE
 // ==========================================
-async function gtcCall(endpoint, payload, creds) {
+async function gtcCall(endpoint, payload, creds, env = null) {
   const raw = JSON.stringify(payload);
   const ts = Date.now().toString();
 
   const headers = {
+    "User-Agent": "okhttp/4.9.2",
     "Content-Type": "application/json",
     "x-os": ANDROID_OS,
     "x-app-version": APP_VERSION,
@@ -117,8 +118,9 @@ async function gtcCall(endpoint, payload, creds) {
     headers["x-token"] = creds.token;
   }
 
+  const baseUrl = (env && env.GTC_BASE) || GTC_BASE;
   const body = JSON.stringify({ data: encrypt(raw, creds.finalKey) });
-  const res = await fetch(GTC_BASE + endpoint, { method: "POST", headers, body });
+  const res = await fetch(baseUrl + endpoint, { method: "POST", headers, body });
 
   let json;
   try {
@@ -136,9 +138,25 @@ async function gtcCall(endpoint, payload, creds) {
   }
 
   const meta = json?.meta || {};
-  if (res.status === 403 || meta.httpStatusCode === 403) {
-    const err = new Error("Akun GetContact terkena limit atau membutuhkan verifikasi captcha.");
-    err.isCaptcha = true;
+  const isForbidden = res.status === 403 || meta.httpStatusCode === 403;
+  if (isForbidden) {
+    const errorCode = String(meta.errorCode || "");
+    const errorMsg = String(meta.errorMessage || "");
+    const isActualCaptcha = errorCode === "403004" || errorMsg.toLowerCase().includes("captcha");
+
+    if (isActualCaptcha) {
+      const err = new Error("Akun GetContact saat ini membutuhkan penyelesaian Captcha.");
+      err.isCaptcha = true;
+      err.errorCode = errorCode;
+      throw err;
+    }
+
+    const detail = errorMsg
+      ? `${errorMsg} (Code: ${errorCode || "403"})`
+      : `Akses ditolak oleh GetContact (HTTP 403 Forbidden / Cloudflare Datacenter IP dibatasi).`;
+    const err = new Error(detail);
+    err.isCaptcha = false;
+    err.errorCode = errorCode;
     throw err;
   }
 
@@ -149,14 +167,20 @@ async function gtcCall(endpoint, payload, creds) {
   return json;
 }
 
-// Ambil sisa kuota (non-blocking)
-async function getQuotaSummary(creds) {
+// Format informasi kuota dari subscriptionInfo
+function formatQuotaInfo(subscriptionInfo) {
+  const usage = subscriptionInfo?.usage;
+  if (!usage) return null;
+  const s = usage.search || {};
+  const nd = usage.numberDetail || {};
+  return `📊 <b>Sisa Kuota:</b> Cari Profil <code>${s.remainingCount ?? "?"}/${s.limit ?? "?"}</code> | Tag <code>${nd.remainingCount ?? "?"}/${nd.limit ?? "?"}</code>`;
+}
+
+// Ambil sisa kuota (non-blocking fallback)
+async function getQuotaSummary(creds, env = null) {
   try {
-    const res = await gtcCall("/v2.8/subscription", { token: creds.token }, creds);
-    const usage = res.result?.subscriptionInfo?.usage || {};
-    const s = usage.search || {};
-    const nd = usage.numberDetail || {};
-    return `📊 <b>Sisa Kuota:</b> Cari Profil <code>${s.remainingCount ?? "?"}/${s.limit ?? "?"}</code> | Tag <code>${nd.remainingCount ?? "?"}/${nd.limit ?? "?"}</code>`;
+    const res = await gtcCall("/v2.8/subscription", { token: creds.token }, creds, env);
+    return formatQuotaInfo(res.result?.subscriptionInfo);
   } catch {
     return null;
   }
@@ -376,7 +400,7 @@ async function handleStats(token, chatId, env, replyId = null, editMsgId = null,
     let resetLine = "📅 <b>Reset Kuota:</b> <code>-</code>";
 
     try {
-      const subRes = await gtcCall("/v2.8/subscription", { token: creds.token }, creds);
+      const subRes = await gtcCall("/v2.8/subscription", { token: creds.token }, creds, env);
       const usage = subRes.result?.subscriptionInfo?.usage || {};
       const s = usage.search || {};
       const nd = usage.numberDetail || {};
@@ -503,10 +527,8 @@ async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null,
 
   try {
     const creds = await getActiveCreds(env);
-    const [res, quotaInfo] = await Promise.all([
-      gtcCall("/v2.8/search", { countryCode: COUNTRY, phoneNumber: phone, source: "search", token: creds.token }, creds),
-      getQuotaSummary(creds),
-    ]);
+    const res = await gtcCall("/v2.8/search", { countryCode: COUNTRY, phoneNumber: phone, source: "search", token: creds.token }, creds, env);
+    const quotaInfo = formatQuotaInfo(res.result?.subscriptionInfo) || (await getQuotaSummary(creds, env));
 
     const profile = res.result?.profile;
     if (!profile) {
@@ -579,10 +601,8 @@ async function handleSearchTags(token, chatId, rawPhone, env, replyId = null, ed
 
   try {
     const creds = await getActiveCreds(env);
-    const [res, quotaInfo] = await Promise.all([
-      gtcCall("/v2.8/number-detail", { countryCode: COUNTRY, phoneNumber: phone, source: "profile", token: creds.token }, creds),
-      getQuotaSummary(creds),
-    ]);
+    const res = await gtcCall("/v2.8/number-detail", { countryCode: COUNTRY, phoneNumber: phone, source: "profile", token: creds.token }, creds, env);
+    const quotaInfo = formatQuotaInfo(res.result?.subscriptionInfo) || (await getQuotaSummary(creds, env));
 
     const tags = res.result?.tags || [];
     const replyMarkup = {
@@ -655,7 +675,7 @@ async function handleSearchError(token, chatId, err, replyId, editMsgId, guestQu
     : undefined;
 
   if (err.isCaptcha) {
-    errText = `⚠️ <b>Akun Terkena Pembatasan (403)</b>\n\nAkun GetContact saat ini membutuhkan penyelesaian Captcha. Tekan tombol di bawah untuk membuka blokir.`;
+    errText = `⚠️ <b>Akun Terkena Pembatasan (Captcha)</b>\n\nAkun GetContact saat ini membutuhkan penyelesaian Captcha untuk membuka blokir. Tekan tombol di bawah untuk verifikasi.`;
   }
 
   if (editMsgId) {
@@ -676,14 +696,14 @@ async function startCaptchaFlow(token, chatId, env) {
   await tgSendTyping(token, chatId);
   try {
     const creds = await getActiveCreds(env);
-    const res = await gtcCall("/v2.8/refresh-code", { token: creds.token }, creds);
+    const res = await gtcCall("/v2.8/refresh-code", { token: creds.token }, creds, env);
     const b64Image = res.result?.image;
 
     if (!b64Image) {
       await tgSendMessage(
         token,
         chatId,
-        "ℹ️ <b>Tidak ada captcha yang aktif.</b>\nAkun GetContact Anda saat ini tidak dalam kondisi terblokir."
+        "ℹ️ <b>Tidak ada captcha yang aktif.</b>\nAkun GetContact Anda saat ini tidak dalam kondisi terblokir captcha."
       );
       return;
     }
@@ -720,7 +740,8 @@ async function verifyCaptchaAnswer(token, chatId, answer, env, msgId) {
     const res = await gtcCall(
       "/v2.8/verify-code",
       { validationCode: answer.trim(), token: creds.token },
-      creds
+      creds,
+      env
     );
 
     await kvDelete(env, `pending_captcha:${chatId}`);
