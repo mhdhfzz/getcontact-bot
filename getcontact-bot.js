@@ -638,18 +638,15 @@ async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null,
   try {
     let creds = await getActiveCreds(env);
     let res;
-    let quotaInfo;
 
     try {
       res = await gtcCall("/v2.8/search", { countryCode: COUNTRY, phoneNumber: phone, source: "search", token: creds.token }, creds, env);
-      quotaInfo = formatQuotaInfo(res.result?.subscriptionInfo) || (await getQuotaSummary(creds, env));
     } catch (err) {
       if (isRotatableError(err)) {
         const nextCreds = await rotateToNextAccount(env, creds.name, err.message);
         if (nextCreds) {
           creds = nextCreds;
           res = await gtcCall("/v2.8/search", { countryCode: COUNTRY, phoneNumber: phone, source: "search", token: creds.token }, creds, env);
-          quotaInfo = formatQuotaInfo(res.result?.subscriptionInfo) || (await getQuotaSummary(creds, env));
         } else {
           throw err;
         }
@@ -659,7 +656,8 @@ async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null,
     }
 
     const profile = res.result?.profile;
-    if (!profile) {
+    const hasName = Boolean(profile && (profile.displayName || profile.name));
+    if (!profile || !hasName) {
       const notFound = `🔍 <b>Hasil:</b> <code>${phone}</code>\n\nNomor ini belum terdaftar di database GetContact.`;
       if (inlineMsgId) await tgEditMessage(token, null, null, notFound, { inline_message_id: inlineMsgId });
       else if (editMsgId) await tgEditMessage(token, chatId, editMsgId, notFound);
@@ -669,20 +667,17 @@ async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null,
 
     const tagCount = profile.tagCount ?? 0;
     const name = profile.displayName || profile.name || "Tidak diketahui";
-    const email = profile.email ? `\n📧 <b>Email:</b> <code>${escapeHtml(profile.email)}</code>` : "";
+    const emailVal = profile.email || (Array.isArray(profile.emails) ? profile.emails[0] : null) || res.result?.business?.email || null;
+    const emailRow = `📧 <b>Email:</b> ${emailVal ? `<code>${escapeHtml(emailVal)}</code>` : "<i>Tidak tersedia</i>"}`;
 
     const textParts = [
       `👤 <b>Informasi Kontak GetContact</b>`,
       `━━━━━━━━━━━━━━━━━━`,
       `📱 <b>Nomor:</b> <code>${escapeHtml(profile.displayNumber || phone)}</code>`,
       `📛 <b>Nama:</b> <b>${escapeHtml(name)}</b>`,
-      email,
+      emailRow,
       `🏷️ <b>Total Tag:</b> ${tagCount} tag`,
     ];
-
-    if (quotaInfo) {
-      textParts.push(`━━━━━━━━━━━━━━━━━━\n${quotaInfo}`);
-    }
 
     const text = textParts.filter(Boolean).join("\n");
 
@@ -710,6 +705,15 @@ async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null,
       });
     }
   } catch (err) {
+    const msgLower = (err.message || "").toLowerCase();
+    const isNoResult = msgLower.includes("no result") || msgLower.includes("not found");
+    if (isNoResult) {
+      const notFound = `🔍 <b>Hasil:</b> <code>${phone}</code>\n\nNomor ini belum terdaftar di database GetContact.`;
+      if (inlineMsgId) await tgEditMessage(token, null, null, notFound, { inline_message_id: inlineMsgId });
+      else if (editMsgId) await tgEditMessage(token, chatId, editMsgId, notFound);
+      else await tgSendMessage(token, chatId, notFound, { reply_to_message_id: replyId, guest_query_id: guestQueryId });
+      return;
+    }
     if (inlineMsgId) {
       await tgEditMessage(token, null, null, `❌ <b>Gagal:</b> ${escapeHtml(err.message)}`, { inline_message_id: inlineMsgId });
     } else {
@@ -730,18 +734,15 @@ async function handleSearchTags(token, chatId, rawPhone, env, replyId = null, ed
   try {
     let creds = await getActiveCreds(env);
     let res;
-    let quotaInfo;
 
     try {
       res = await gtcCall("/v2.8/number-detail", { countryCode: COUNTRY, phoneNumber: phone, source: "profile", token: creds.token }, creds, env);
-      quotaInfo = formatQuotaInfo(res.result?.subscriptionInfo) || (await getQuotaSummary(creds, env));
     } catch (err) {
       if (isRotatableError(err)) {
         const nextCreds = await rotateToNextAccount(env, creds.name, err.message);
         if (nextCreds) {
           creds = nextCreds;
           res = await gtcCall("/v2.8/number-detail", { countryCode: COUNTRY, phoneNumber: phone, source: "profile", token: creds.token }, creds, env);
-          quotaInfo = formatQuotaInfo(res.result?.subscriptionInfo) || (await getQuotaSummary(creds, env));
         } else {
           throw err;
         }
@@ -765,7 +766,6 @@ async function handleSearchTags(token, chatId, rawPhone, env, replyId = null, ed
 
     if (!tags.length) {
       let msg = `🏷️ <b>Tag Kontak:</b> <code>${phone}</code>\n\n<i>Belum ada tag yang tersimpan untuk nomor ini.</i>`;
-      if (quotaInfo) msg += `\n\n━━━━━━━━━━━━━━━━━━\n${quotaInfo}`;
       if (inlineMsgId) {
         await tgEditMessage(token, null, null, msg, { reply_markup: replyMarkup, inline_message_id: inlineMsgId });
       } else if (editMsgId) {
@@ -792,10 +792,6 @@ async function handleSearchTags(token, chatId, rawPhone, env, replyId = null, ed
       extra,
     ];
 
-    if (quotaInfo) {
-      textParts.push(`━━━━━━━━━━━━━━━━━━\n${quotaInfo}`);
-    }
-
     const fullMsg = textParts.filter(Boolean).join("\n");
 
     if (inlineMsgId) {
@@ -806,6 +802,15 @@ async function handleSearchTags(token, chatId, rawPhone, env, replyId = null, ed
       await tgSendMessage(token, chatId, fullMsg, { reply_to_message_id: replyId, reply_markup: replyMarkup });
     }
   } catch (err) {
+    const msgLower = (err.message || "").toLowerCase();
+    const isNoResult = msgLower.includes("no result") || msgLower.includes("not found");
+    if (isNoResult) {
+      const notFound = `🏷️ <b>Daftar Tag:</b> <code>${phone}</code>\n\nTidak ada tag yang ditemukan untuk nomor ini.`;
+      if (inlineMsgId) await tgEditMessage(token, null, null, notFound, { inline_message_id: inlineMsgId });
+      else if (editMsgId) await tgEditMessage(token, chatId, editMsgId, notFound);
+      else await tgSendMessage(token, chatId, notFound, { reply_to_message_id: replyId });
+      return;
+    }
     if (inlineMsgId) {
       await tgEditMessage(token, null, null, `❌ <b>Gagal:</b> ${escapeHtml(err.message)}`, { inline_message_id: inlineMsgId });
     } else {
@@ -818,24 +823,27 @@ async function handleSearchError(token, chatId, err, replyId, editMsgId, guestQu
   let errText = `❌ <b>Gagal:</b> ${escapeHtml(err.message)}`;
   let replyMarkup = undefined;
 
-  if (err.isCaptcha) {
+  const msgLower = (err.message || "").toLowerCase();
+  if (msgLower.includes("no result") || msgLower.includes("not found")) {
+    errText = `🔍 <b>Hasil:</b> Nomor ini belum terdaftar di database GetContact.`;
+  } else if (err.isCaptcha) {
     errText = `⚠️ <b>Akun Terkena Pembatasan (Captcha)</b>\n\nAkun GetContact saat ini membutuhkan penyelesaian Captcha untuk membuka blokir. Tekan tombol di bawah untuk verifikasi.`;
     replyMarkup = { inline_keyboard: [[{ text: `🔓 Selesaikan Captcha Sekarang`, callback_data: `captcha` }]] };
   } else if (err.errorCode === "403021" || (err.message || "").toLowerCase().includes("maximum query limit")) {
     errText = [
-      `⚠️ <b>Batas Kuota Tag Tercapai (Limit)</b>`,
+      `⚠️ <b>Batas Kuota Tag Tercapai</b>`,
       `━━━━━━━━━━━━━━━━━━`,
-      `Akun GetContact bot telah mencapai batas maksimum untuk melihat detail/tag nomor baru (Sisa Kuota Tag: 0).`,
+      `Layanan GetContact saat ini telah mencapai batas kuota untuk melihat detail tag baru (Sisa Kuota Tag: 0).`,
       ``,
-      `💡 <i>Pencarian profil nama nomor masih tetap berfungsi normal. Kuota tag akan diperbarui otomatis saat masa aktif paket ter-reset, atau Admin dapat mengganti ke akun lain menggunakan perintah /useacc.</i>`,
+      `💡 <i>Pencarian profil nama nomor masih tetap berfungsi normal. Kuota tag akan diperbarui otomatis saat masa aktif paket ter-reset.</i>`,
     ].join("\n");
   } else if (err.errorCode === "403001" || (err.message || "").toLowerCase().includes("authentication failed")) {
     errText = [
-      `⚠️ <b>Autentikasi Akun Gagal / Kedaluwarsa (Code: 403001)</b>`,
+      `⚠️ <b>Layanan Sedang Mengalami Gangguan (Code: 403001)</b>`,
       `━━━━━━━━━━━━━━━━━━`,
-      `Token akun GetContact tidak valid atau sesi login telah kedaluwarsa.`,
+      `Koneksi ke akun GetContact sedang bermasalah atau sesi telah kedaluwarsa.`,
       ``,
-      `💡 <i>Admin dapat mendaftarkan akun baru via /addacc atau beralih ke akun cadangan lain dengan /useacc.</i>`,
+      `💡 <i>Silakan coba beberapa saat lagi selagi sistem diperbarui oleh Admin.</i>`,
     ].join("\n");
   }
 
@@ -1244,7 +1252,7 @@ export default {
         `   • Atau <b>reply</b> pesan mana pun yang berisi nomor HP dengan mention <code>${bTag}</code>`,
         `   • Atau <b>reply</b> pesan bot dengan nomor HP target`,
         ``,
-        `💡 <i>Setiap hasil pencarian otomatis menyertakan sisa kuota, tombol interaktif untuk melihat daftar tag, refresh profil, dan donasi.</i>`,
+        `💡 <i>Setiap hasil pencarian menyertakan tombol interaktif untuk melihat daftar tag, refresh profil, dan donasi.</i>`,
       ];
 
       if (isAdminUser(userId, env)) {

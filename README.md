@@ -23,7 +23,7 @@ Berjalan di atas **Cloudflare Workers** (serverless) & **Cloudflare KV**. Sangat
 - **📊 Statistik Penggunaan Admin (`/stats`)**:
   - Pantau analitik bot secara *real-time*: jumlah pengguna unik, grup unik yang menggunakan Guest Mode, total pencarian profil/tag, dan captcha yang berhasil diselesaikan.
   - Dilengkapi ringkasan kuota akun GetContact aktif dan tombol interaktif `[ 🔄 Refresh Statistik ]`.
-- **📊 Sisa Kuota Otomatis**: Setiap hasil pencarian profil maupun tag otomatis menyertakan informasi sisa kuota pencarian akun secara *real-time*.
+- **📊 Monitoring Kuota Khusus Admin (`/stats`)**: Informasi sisa kuota profil dan kuota tag dapat dipantau langsung oleh Admin secara *real-time* via perintah `/stats`.
 - **🔓 Buka Blokir / Solusi Captcha Otomatis**: Saat akun dibatasi (HTTP 403), bot otomatis memunculkan tombol buka blokir dan mengirimkan gambar captcha ke chat. Anda cukup mengetik teks captcha untuk membuka blokir akun secara instan.
 - **☕ Sistem Donasi QRIS**:
   - Tombol donasi terpasang otomatis di bawah setiap hasil pencarian kontak.
@@ -162,7 +162,7 @@ Teks singkat yang muncul pada profil bot:
 1. Kirim `/setabouttext` ke [@BotFather], pilih bot Anda.
 2. Kirimkan teks berikut:
    ```text
-   Cek nama kontak, daftar tag, dan sisa kuota GetContact secara instan.
+   Cek nama kontak dan daftar tag GetContact secara instan.
    ```
 
 ### 5. Mengatur Foto Profil Bot (`/setuserpic`)
@@ -224,14 +224,13 @@ Bot dapat merespons pencarian nomor di grup mana pun dengan sangat fleksibel:
 
 | Input / Perintah | Keterangan |
 | :--- | :--- |
-| `081234567890` | Cukup kirim nomor telepon langsung di chat pribadi untuk melihat profil & sisa kuota |
+| `081234567890` | Cukup kirim nomor telepon langsung di chat pribadi untuk melihat profil kontak |
 | `@namabot <nomor>` | **Guest Mode**: Mention bot di grup untuk melakukan pencarian instan |
 | `/search <nomor>` | Alternatif pencarian menggunakan perintah (contoh: `/search 081234567890`) |
 | `/start` atau `/help` | Menampilkan panduan dan petunjuk singkat penggunaan bot |
 
 > 💡 **Navigasi 100% Berbasis Tombol:**
 > - **🏷️ Lihat Tags:** Tekan tombol `[ 🏷️ Lihat Tags (N) ]` pada hasil pencarian profil untuk membuka seluruh daftar tag.
-> - **📊 Sisa Kuota:** Otomatis disertakan secara *real-time* di bagian bawah setiap kartu hasil pencarian.
 > - **☕ Donasi:** Tekan tombol `[ ☕ Donasi ]` di bawah hasil pencarian untuk melihat QRIS dukungan perpanjangan akun Premium.
 > - **🔓 Buka Blokir (Captcha):** Tombol `[ 🔓 Selesaikan Captcha Sekarang ]` dan `[ 🔄 Refresh Gambar Captcha ]` otomatis muncul jika akun terkena pembatasan (HTTP 403).
 
