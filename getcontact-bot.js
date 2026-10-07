@@ -618,85 +618,8 @@ async function rotateToNextAccount(env, failedAccountName, reason = "") {
 }
 
 // ==========================================
-// EKSTRAKSI EMAIL & HANDLER PENCARIAN PROFIL
+// HANDLER PENCARIAN PROFIL
 // ==========================================
-function extractEmail(res) {
-  if (!res) return null;
-  const p = res.result?.profile || res.profile;
-  const candidates = [
-    p?.email,
-    p?.eMail,
-    p?.mail,
-    p?.userEmail,
-    res.result?.email,
-    res.result?.user?.email,
-    res.result?.account?.email,
-    res.result?.business?.email,
-    p?.details?.email,
-    p?.contact?.email,
-  ];
-
-  for (const c of candidates) {
-    if (!c) continue;
-    if (typeof c === "string" && c.trim() && c.includes("@")) {
-      return c.trim();
-    }
-    if (typeof c === "object") {
-      if (typeof c.email === "string" && c.email.includes("@")) return c.email.trim();
-      if (typeof c.address === "string" && c.address.includes("@")) return c.address.trim();
-      if (typeof c.value === "string" && c.value.includes("@")) return c.value.trim();
-      if (Array.isArray(c)) {
-        for (const item of c) {
-          if (typeof item === "string" && item.includes("@")) return item.trim();
-          if (item && typeof item.email === "string") return item.email.trim();
-        }
-      }
-    }
-  }
-
-  if (p && typeof p === "object") {
-    for (const [k, v] of Object.entries(p)) {
-      if (typeof v === "string" && /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(v.trim())) {
-        return v.trim();
-      }
-    }
-  }
-
-  return null;
-}
-
-function extractTrustScore(res) {
-  if (!res) return null;
-  const p = res.result?.profile || res.profile;
-  const t = res.result?.trust || res.trust;
-
-  // 1. Cek di profile.trustScore
-  if (p?.trustScore !== null && p?.trustScore !== undefined) {
-    if (typeof p.trustScore === "object") {
-      const score = p.trustScore.score ?? p.trustScore.value ?? p.trustScore.point;
-      if (score !== null && score !== undefined) return String(score);
-    } else {
-      return String(p.trustScore);
-    }
-  }
-
-  // 2. Cek di result.trust
-  if (t !== null && t !== undefined) {
-    if (typeof t === "object") {
-      const score = t.score ?? t.value ?? t.point;
-      if (score !== null && score !== undefined) return String(score);
-    } else {
-      return String(t);
-    }
-  }
-
-  // 3. Cek di result.trustScore
-  if (res.result?.trustScore !== null && res.result?.trustScore !== undefined) {
-    return String(res.result.trustScore);
-  }
-
-  return null;
-}
 
 async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null, editMsgId = null, guestQueryId = null, inlineMsgId = null, ownerId = null) {
   const phone = normalizePhone(rawPhone);
@@ -746,63 +669,13 @@ async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null,
     const tagCount = profile.tagCount ?? 0;
     const name = profile.displayName || profile.name || "Tidak diketahui";
 
-    // 1. Ekstraksi email dari respons pencarian
-    let email = extractEmail(res);
-
-    // 2. Jika akun sendiri yang dicari (atau nomor akun aktif), ambil email via endpoint profil akun (/v2.8/profile)
-    const isSelfSearch = Boolean(
-      res.result?.searchedHimself ||
-      (creds.phoneNumber && normalizePhone(creds.phoneNumber) === phone) ||
-      (creds.name && normalizePhone(creds.name) === phone)
-    );
-    let selfProfile = null;
-    if (isSelfSearch && creds.token) {
-      try {
-        selfProfile = await gtcCall("/v2.8/profile", { token: creds.token }, creds, env);
-        if (!email) email = extractEmail(selfProfile);
-      } catch { }
-    }
-
-    // 3. Fallback periksa seluruh akun cadangan tersimpan jika nomor target cocok
-    if (!email) {
-      try {
-        const store = await loadAccountStore(env);
-        for (const [accName, accData] of Object.entries(store.accounts || {})) {
-          const accPhone = accData?.phoneNumber || accName;
-          if (accPhone && normalizePhone(accPhone) === phone && accData.token) {
-            const extraProfile = await gtcCall("/v2.8/profile", { token: accData.token }, accData, env);
-            email = extractEmail(extraProfile);
-            if (!selfProfile) selfProfile = extraProfile;
-            if (email) break;
-          }
-        }
-      } catch { }
-    }
-
-    // 4. Ekstraksi Trust Score
-    const trustScore = extractTrustScore(res) || (selfProfile ? extractTrustScore(selfProfile) : null);
-
     const textParts = [
       `👤 <b>Informasi Kontak GetContact</b>`,
       `━━━━━━━━━━━━━━━━━━`,
       `📱 <b>Nomor:</b> <code>${escapeHtml(profile.displayNumber || phone)}</code>`,
       `📛 <b>Nama:</b> <b>${escapeHtml(name)}</b>`,
+      `🏷️ <b>Total Tag:</b> ${tagCount} tag`,
     ];
-
-    // Jika ada email, tampilkan. Jika tidak ada email, hilangkan bagian email.
-    if (email) {
-      textParts.push(`📧 <b>Email:</b> <code>${escapeHtml(email)}</code>`);
-    }
-
-    // Tampilkan Trust Score
-    if (trustScore !== null && trustScore !== undefined && trustScore !== "") {
-      const scoreDisplay = /^\d+$/.test(String(trustScore)) ? `${trustScore}/100` : String(trustScore);
-      textParts.push(`🛡️ <b>Trust Score:</b> <code>${escapeHtml(scoreDisplay)}</code>`);
-    } else {
-      textParts.push(`🛡️ <b>Trust Score:</b> <i>-</i>`);
-    }
-
-    textParts.push(`🏷️ <b>Total Tag:</b> ${tagCount} tag`);
 
     const text = textParts.join("\n");
 
