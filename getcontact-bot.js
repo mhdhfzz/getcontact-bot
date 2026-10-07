@@ -720,6 +720,50 @@ async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null,
   }
 }
 
+function formatTagsMessage(phone, tags, maxLen = 3900) {
+  const header = [
+    `🏷️ <b>Daftar Tag (${tags.length} ditemukan)</b>`,
+    `📱 <b>Nomor:</b> <code>${escapeHtml(phone)}</code>`,
+    `━━━━━━━━━━━━━━━━━━`,
+  ].join("\n");
+
+  if (!tags.length) {
+    return `${header}\n<i>Belum ada tag yang tersimpan untuk nomor ini.</i>`;
+  }
+
+  const preStart = `<pre>tags (${tags.length}):\n`;
+  const preEnd = `</pre>`;
+
+  const baseLen = header.length + 1 + preStart.length + preEnd.length;
+  let remainingLen = maxLen - baseLen;
+
+  const tagLines = [];
+  let cutCount = 0;
+
+  for (let i = 0; i < tags.length; i++) {
+    const t = tags[i];
+    const countStr = (t.count !== undefined && t.count !== null && t.count !== "") ? `  x${t.count}` : "";
+    const line = `- ${escapeHtml(t.tag || "")}${countStr}`;
+    const lineLen = line.length + 1;
+
+    const reserveForCut = 35;
+    if (remainingLen - lineLen < (i < tags.length - 1 ? reserveForCut : 0)) {
+      cutCount = tags.length - i;
+      break;
+    }
+
+    tagLines.push(line);
+    remainingLen -= lineLen;
+  }
+
+  let body = tagLines.join("\n");
+  if (cutCount > 0) {
+    body += `\n... dan ${cutCount} tag lainnya.`;
+  }
+
+  return `${header}\n${preStart}${body}${preEnd}`;
+}
+
 async function handleSearchTags(token, chatId, rawPhone, env, replyId = null, editMsgId = null, inlineMsgId = null, ownerId = null) {
   const phone = normalizePhone(rawPhone);
   if (!phone || phone.length < 8) return;
@@ -762,42 +806,17 @@ async function handleSearchTags(token, chatId, rawPhone, env, replyId = null, ed
       ],
     };
 
-    if (!tags.length) {
-      let msg = `🏷️ <b>Tag Kontak:</b> <code>${phone}</code>\n\n<i>Belum ada tag yang tersimpan untuk nomor ini.</i>`;
-      if (inlineMsgId) {
-        await tgEditMessage(token, null, null, msg, { reply_markup: replyMarkup, inline_message_id: inlineMsgId });
-      } else if (editMsgId) {
-        await tgEditMessage(token, chatId, editMsgId, msg, { reply_markup: replyMarkup });
-      } else {
-        await tgSendMessage(token, chatId, msg, { reply_to_message_id: replyId, reply_markup: replyMarkup });
-      }
-      return;
-    }
-
-    const maxDisplay = 35;
-    const tagList = tags
-      .slice(0, maxDisplay)
-      .map((t, idx) => `${idx + 1}. <b>${escapeHtml(t.tag)}</b>${t.count > 1 ? ` <i>(${t.count}x)</i>` : ""}`)
-      .join("\n");
-
-    const extra = tags.length > maxDisplay ? `\n<i>... dan ${tags.length - maxDisplay} tag lainnya.</i>` : "";
-
-    const textParts = [
-      `🏷️ <b>Daftar Tag (${tags.length} ditemukan)</b>`,
-      `📱 <b>Nomor:</b> <code>${phone}</code>`,
-      `━━━━━━━━━━━━━━━━━━`,
-      tagList,
-      extra,
-    ];
-
-    const fullMsg = textParts.filter(Boolean).join("\n");
+    const text = formatTagsMessage(phone, tags, 3900);
 
     if (inlineMsgId) {
-      await tgEditMessage(token, null, null, fullMsg, { reply_markup: replyMarkup, inline_message_id: inlineMsgId });
+      await tgEditMessage(token, null, null, text, { reply_markup: replyMarkup, inline_message_id: inlineMsgId });
     } else if (editMsgId) {
-      await tgEditMessage(token, chatId, editMsgId, fullMsg, { reply_markup: replyMarkup });
+      await tgEditMessage(token, chatId, editMsgId, text, { reply_markup: replyMarkup });
     } else {
-      await tgSendMessage(token, chatId, fullMsg, { reply_to_message_id: replyId, reply_markup: replyMarkup });
+      await tgSendMessage(token, chatId, text, {
+        reply_to_message_id: replyId,
+        reply_markup: replyMarkup,
+      });
     }
   } catch (err) {
     const msgLower = (err.message || "").toLowerCase();
