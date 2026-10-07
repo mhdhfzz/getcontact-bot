@@ -743,7 +743,7 @@ function formatTagsMessage(phone, tags, maxLen = 3900) {
   for (let i = 0; i < tags.length; i++) {
     const t = tags[i];
     const countStr = (t.count !== undefined && t.count !== null && t.count !== "") ? `  x${t.count}` : "";
-    const line = `- ${escapeHtml(t.tag || "")}${countStr}`;
+    const line = `${i + 1}. ${escapeHtml(t.tag || "")}${countStr}`;
     const lineLen = line.length + 1;
 
     const reserveForCut = 35;
