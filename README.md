@@ -15,7 +15,7 @@ Berjalan di atas **Cloudflare Workers** (serverless) & **Cloudflare KV**. Sangat
 
 ## Fitur Utama
 
-- **🔍 Pencarian Profil Instan**: Menampilkan nama pemilik kontak (*display name*), nomor format E.164, email (jika tersedia), serta jumlah total tag tersimpan.
+- **🔍 Pencarian Profil Instan**: Menampilkan nama pemilik kontak (*display name*), nomor format E.164, email (jika tersedia), skor kepercayaan (*Trust Score*), serta jumlah total tag tersimpan.
 - **🏷️ Daftar Tag Lengkap**: Menampilkan daftar nama yang disimpan oleh kontak orang lain, lengkap dengan frekuensi kemunculannya.
 - **🌐 Guest Mode (Grup & Chat Mana Pun Tanpa Harus Join)**:
   - Bot dapat dipanggil di grup mana pun tanpa ribet.
