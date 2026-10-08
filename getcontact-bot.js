@@ -161,7 +161,10 @@ async function gtcCall(endpoint, payload, creds, env = null) {
   }
 
   if (res.status !== 200 || (meta.httpStatusCode && meta.httpStatusCode !== 200)) {
-    throw new Error(meta.errorMessage || `HTTP ${res.status}`);
+    const errorCode = String(meta.errorCode || "");
+    const err = new Error(meta.errorMessage || `HTTP ${res.status}`);
+    err.errorCode = errorCode;
+    throw err;
   }
 
   return json;
@@ -226,6 +229,7 @@ async function tgSendMessage(token, chatId, text, options = {}) {
     chat_id: chatId,
     text,
     parse_mode: "HTML",
+    allow_sending_without_reply: true,
     ...options,
   });
 }
@@ -557,8 +561,12 @@ function isRotatableError(err) {
   return (
     code === "403021" ||
     code === "403001" ||
+    msg.includes("403021") ||
+    msg.includes("403001") ||
     msg.includes("maximum query limit") ||
-    msg.includes("authentication failed")
+    msg.includes("query limit") ||
+    msg.includes("authentication failed") ||
+    msg.includes("auth failed")
   );
 }
 
@@ -712,11 +720,7 @@ async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null,
       else await tgSendMessage(token, chatId, notFound, { reply_to_message_id: replyId, guest_query_id: guestQueryId });
       return;
     }
-    if (inlineMsgId) {
-      await tgEditMessage(token, null, null, `❌ <b>Gagal:</b> ${escapeHtml(err.message)}`, { inline_message_id: inlineMsgId });
-    } else {
-      await handleSearchError(token, chatId, err, replyId, editMsgId, guestQueryId);
-    }
+    await handleSearchError(token, chatId, err, replyId, editMsgId, guestQueryId, inlineMsgId, "profile");
   }
 }
 
@@ -764,7 +768,7 @@ function formatTagsMessage(phone, tags, maxLen = 3900) {
   return `${header}\n${preStart}${body}${preEnd}`;
 }
 
-async function handleSearchTags(token, chatId, rawPhone, env, replyId = null, editMsgId = null, inlineMsgId = null, ownerId = null) {
+async function handleSearchTags(token, chatId, rawPhone, env, replyId = null, editMsgId = null, inlineMsgId = null, ownerId = null, guestQueryId = null) {
   const phone = normalizePhone(rawPhone);
   if (!phone || phone.length < 8) return;
 
@@ -816,6 +820,7 @@ async function handleSearchTags(token, chatId, rawPhone, env, replyId = null, ed
       await tgSendMessage(token, chatId, text, {
         reply_to_message_id: replyId,
         reply_markup: replyMarkup,
+        guest_query_id: guestQueryId,
       });
     }
   } catch (err) {
@@ -825,36 +830,56 @@ async function handleSearchTags(token, chatId, rawPhone, env, replyId = null, ed
       const notFound = `🏷️ <b>Daftar Tag:</b> <code>${phone}</code>\n\nTidak ada tag yang ditemukan untuk nomor ini.`;
       if (inlineMsgId) await tgEditMessage(token, null, null, notFound, { inline_message_id: inlineMsgId });
       else if (editMsgId) await tgEditMessage(token, chatId, editMsgId, notFound);
-      else await tgSendMessage(token, chatId, notFound, { reply_to_message_id: replyId });
+      else await tgSendMessage(token, chatId, notFound, { reply_to_message_id: replyId, guest_query_id: guestQueryId });
       return;
     }
-    if (inlineMsgId) {
-      await tgEditMessage(token, null, null, `❌ <b>Gagal:</b> ${escapeHtml(err.message)}`, { inline_message_id: inlineMsgId });
-    } else {
-      await handleSearchError(token, chatId, err, replyId, editMsgId);
-    }
+    await handleSearchError(token, chatId, err, replyId, editMsgId, guestQueryId, inlineMsgId, "tags");
   }
 }
 
-async function handleSearchError(token, chatId, err, replyId, editMsgId, guestQueryId = null) {
+async function handleSearchError(token, chatId, err, replyId, editMsgId, guestQueryId = null, inlineMsgId = null, searchType = "profile") {
   let errText = `❌ <b>Gagal:</b> ${escapeHtml(err.message)}`;
   let replyMarkup = undefined;
 
   const msgLower = (err.message || "").toLowerCase();
+  const code = String(err.errorCode || "");
+
+  const isQueryLimit =
+    code === "403021" ||
+    msgLower.includes("403021") ||
+    msgLower.includes("maximum query limit") ||
+    msgLower.includes("query limit");
+
+  const isAuthFailed =
+    code === "403001" ||
+    msgLower.includes("403001") ||
+    msgLower.includes("authentication failed") ||
+    msgLower.includes("auth failed");
+
   if (msgLower.includes("no result") || msgLower.includes("not found")) {
     errText = `🔍 <b>Hasil:</b> Nomor ini belum terdaftar di database GetContact.`;
   } else if (err.isCaptcha) {
     errText = `⚠️ <b>Akun Terkena Pembatasan (Captcha)</b>\n\nAkun GetContact saat ini membutuhkan penyelesaian Captcha untuk membuka blokir. Tekan tombol di bawah untuk verifikasi.`;
     replyMarkup = { inline_keyboard: [[{ text: `🔓 Selesaikan Captcha Sekarang`, callback_data: `captcha` }]] };
-  } else if (err.errorCode === "403021" || (err.message || "").toLowerCase().includes("maximum query limit")) {
-    errText = [
-      `⚠️ <b>Batas Kuota Tag Tercapai</b>`,
-      `━━━━━━━━━━━━━━━━━━`,
-      `Layanan GetContact saat ini telah mencapai batas kuota untuk melihat detail tag baru (Sisa Kuota Tag: 0).`,
-      ``,
-      `💡 <i>Pencarian profil nama nomor masih tetap berfungsi normal. Kuota tag akan diperbarui otomatis saat masa aktif paket ter-reset.</i>`,
-    ].join("\n");
-  } else if (err.errorCode === "403001" || (err.message || "").toLowerCase().includes("authentication failed")) {
+  } else if (isQueryLimit) {
+    if (searchType === "profile") {
+      errText = [
+        `⚠️ <b>Batas Kuota Pencarian Profil Tercapai</b>`,
+        `━━━━━━━━━━━━━━━━━━`,
+        `Layanan GetContact saat ini telah mencapai batas kuota pencarian profil nomor (Sisa Kuota: 0).`,
+        ``,
+        `💡 <i>Kuota pencarian akan diperbarui otomatis saat masa aktif paket ter-reset atau diperbarui oleh Admin.</i>`,
+      ].join("\n");
+    } else {
+      errText = [
+        `⚠️ <b>Batas Kuota Tag Tercapai</b>`,
+        `━━━━━━━━━━━━━━━━━━`,
+        `Layanan GetContact saat ini telah mencapai batas kuota untuk melihat detail tag baru (Sisa Kuota Tag: 0).`,
+        ``,
+        `💡 <i>Pencarian profil nama nomor masih tetap berfungsi normal. Kuota tag akan diperbarui otomatis saat masa aktif paket ter-reset.</i>`,
+      ].join("\n");
+    }
+  } else if (isAuthFailed) {
     errText = [
       `⚠️ <b>Layanan Sedang Mengalami Gangguan (Code: 403001)</b>`,
       `━━━━━━━━━━━━━━━━━━`,
@@ -864,13 +889,24 @@ async function handleSearchError(token, chatId, err, replyId, editMsgId, guestQu
     ].join("\n");
   }
 
-  if (editMsgId) {
-    await tgEditMessage(token, chatId, editMsgId, errText, { reply_markup: replyMarkup });
+  if (inlineMsgId) {
+    await tgEditMessage(token, null, null, errText, { reply_markup: replyMarkup, inline_message_id: inlineMsgId });
+  } else if (editMsgId) {
+    const editRes = await tgEditMessage(token, chatId, editMsgId, errText, { reply_markup: replyMarkup });
+    if (!editRes || !editRes.ok) {
+      await tgSendMessage(token, chatId, errText, {
+        reply_to_message_id: replyId,
+        reply_markup: replyMarkup,
+        guest_query_id: guestQueryId,
+        allow_sending_without_reply: true,
+      });
+    }
   } else {
     await tgSendMessage(token, chatId, errText, {
       reply_to_message_id: replyId,
       reply_markup: replyMarkup,
       guest_query_id: guestQueryId,
+      allow_sending_without_reply: true,
     });
   }
 }
