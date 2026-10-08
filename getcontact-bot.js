@@ -722,8 +722,8 @@ async function handleSearchProfile(token, chatId, rawPhone, env, replyId = null,
 
 function formatTagsMessage(phone, tags, maxLen = 3900) {
   const header = [
-    `🏷️ <b>Daftar Tag (${tags.length} ditemukan)</b>`,
     `📱 <b>Nomor:</b> <code>${escapeHtml(phone)}</code>`,
+    `🏷️ <b>Daftar Tag (${tags.length} ditemukan)</b>`,
     `━━━━━━━━━━━━━━━━━━`,
   ].join("\n");
 
@@ -731,7 +731,7 @@ function formatTagsMessage(phone, tags, maxLen = 3900) {
     return `${header}\n<i>Belum ada tag yang tersimpan untuk nomor ini.</i>`;
   }
 
-  const preStart = `<pre>tags (${tags.length}):\n`;
+  const preStart = `<pre>`;
   const preEnd = `</pre>`;
 
   const baseLen = header.length + 1 + preStart.length + preEnd.length;
@@ -1613,8 +1613,19 @@ export default {
 
     let targetPhone = extractPhoneFromText(cleanText);
 
-    // Jika nomor tidak ada di teks pesan saat ini, tetapi me-reply pesan lain, cari nomor di pesan yang di-reply
-    if (!targetPhone && msg.reply_to_message) {
+    // Jika nomor tidak ada di teks pesan saat ini, tetapi me-reply pesan lain (bukan pesan bot), cari nomor di pesan yang di-reply.
+    // Cegah spam: JANGAN ambil nomor dari pesan yang berasal dari bot itu sendiri agar reply biasa tidak memicu pencarian ulang.
+    const isRepliedMsgFromBot = Boolean(
+      isReplyToBot ||
+      msg.reply_to_message?.from?.id === botInfo?.id ||
+      msg.reply_to_message?.from?.is_bot ||
+      (msg.reply_to_message?.text && (
+        msg.reply_to_message.text.includes("Informasi Kontak GetContact") ||
+        msg.reply_to_message.text.includes("Daftar Tag")
+      ))
+    );
+
+    if (!targetPhone && msg.reply_to_message && !isRepliedMsgFromBot) {
       const replyContent = msg.reply_to_message.text || msg.reply_to_message.caption || "";
       targetPhone = extractPhoneFromText(replyContent);
     }
